@@ -79,7 +79,15 @@ export const ListDepartmentsResponseItem = zod.object({
   "agentCount": zod.number(),
   "employeeCount": zod.number(),
   "runCount": zod.number(),
-  "costShare": zod.number().describe('Fraction of total org cost (0-1)')
+  "costShare": zod.number().describe('Fraction of total org cost (0-1)'),
+  "budget": zod.union([zod.object({
+  "id": zod.number().describe('Budget record id'),
+  "amount": zod.number().describe('Monthly budget cap in USD'),
+  "spend": zod.number().describe('Actual spend in the current calendar month (USD)'),
+  "utilization": zod.number().describe('spend \/ amount (0-1+, can exceed 1 when over budget)'),
+  "status": zod.string().describe('One of ok, warning (near budget), over (exceeded)'),
+  "period": zod.string().describe('Calendar month the spend covers (YYYY-MM)')
+}),zod.null()]).optional().describe('Department-wide monthly budget status, or null when no budget is set.')
 })
 export const ListDepartmentsResponse = zod.array(ListDepartmentsResponseItem)
 
@@ -124,7 +132,27 @@ export const GetDepartmentResponse = zod.object({
   "tier": zod.string().describe('Access tier (frontier, research, routine)'),
   "cost": zod.number(),
   "tokens": zod.number()
-}))
+})),
+  "budget": zod.union([zod.object({
+  "id": zod.number().describe('Budget record id'),
+  "amount": zod.number().describe('Monthly budget cap in USD'),
+  "spend": zod.number().describe('Actual spend in the current calendar month (USD)'),
+  "utilization": zod.number().describe('spend \/ amount (0-1+, can exceed 1 when over budget)'),
+  "status": zod.string().describe('One of ok, warning (near budget), over (exceeded)'),
+  "period": zod.string().describe('Calendar month the spend covers (YYYY-MM)')
+}),zod.null()]).optional().describe('Department-wide monthly budget status, or null when no budget is set.'),
+  "modelBudgets": zod.array(zod.object({
+  "id": zod.number(),
+  "departmentId": zod.string(),
+  "departmentName": zod.string(),
+  "modelId": zod.string().nullable().describe('Model scope, or null for a department-wide budget'),
+  "modelName": zod.string().nullable(),
+  "amount": zod.number().describe('Monthly budget cap in USD'),
+  "spend": zod.number().describe('Actual spend in the current calendar month (USD)'),
+  "utilization": zod.number().describe('spend \/ amount (0-1+, can exceed 1 when over budget)'),
+  "status": zod.string().describe('One of ok, warning (near budget), over (exceeded)'),
+  "period": zod.string().describe('Calendar month the spend covers (YYYY-MM)')
+})).optional().describe('Per-model budgets configured for this department, with status.')
 })
 
 
@@ -308,6 +336,58 @@ export const GetAgentResponse = zod.object({
   "tokens": zod.number(),
   "cost": zod.number()
 }))
+})
+
+
+/**
+ * All configured monthly budgets with current-month actual spend, utilization, and over/near-budget status.
+ * @summary List budgets
+ */
+export const ListBudgetsResponseItem = zod.object({
+  "id": zod.number(),
+  "departmentId": zod.string(),
+  "departmentName": zod.string(),
+  "modelId": zod.string().nullable().describe('Model scope, or null for a department-wide budget'),
+  "modelName": zod.string().nullable(),
+  "amount": zod.number().describe('Monthly budget cap in USD'),
+  "spend": zod.number().describe('Actual spend in the current calendar month (USD)'),
+  "utilization": zod.number().describe('spend \/ amount (0-1+, can exceed 1 when over budget)'),
+  "status": zod.string().describe('One of ok, warning (near budget), over (exceeded)'),
+  "period": zod.string().describe('Calendar month the spend covers (YYYY-MM)')
+})
+export const ListBudgetsResponse = zod.array(ListBudgetsResponseItem)
+
+
+/**
+ * Upserts a monthly budget for a department, optionally scoped to a single model. A department-wide budget uses a null modelId.
+ * @summary Create or update a budget
+ */
+export const SetBudgetBody = zod.object({
+  "departmentId": zod.string(),
+  "modelId": zod.string().nullish().describe('Optional model scope; omit or null for a department-wide budget'),
+  "amount": zod.number().describe('Monthly budget cap in USD (must be greater than 0)')
+})
+
+export const SetBudgetResponse = zod.object({
+  "id": zod.number(),
+  "departmentId": zod.string(),
+  "departmentName": zod.string(),
+  "modelId": zod.string().nullable().describe('Model scope, or null for a department-wide budget'),
+  "modelName": zod.string().nullable(),
+  "amount": zod.number().describe('Monthly budget cap in USD'),
+  "spend": zod.number().describe('Actual spend in the current calendar month (USD)'),
+  "utilization": zod.number().describe('spend \/ amount (0-1+, can exceed 1 when over budget)'),
+  "status": zod.string().describe('One of ok, warning (near budget), over (exceeded)'),
+  "period": zod.string().describe('Calendar month the spend covers (YYYY-MM)')
+})
+
+
+/**
+ * Removes a configured budget.
+ * @summary Delete a budget
+ */
+export const DeleteBudgetParams = zod.object({
+  "budgetId": zod.coerce.number()
 })
 
 

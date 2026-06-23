@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   pgTable,
   text,
@@ -6,6 +7,7 @@ import {
   timestamp,
   serial,
   index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 export const departmentsTable = pgTable("departments", {
@@ -84,8 +86,40 @@ export const usageEventsTable = pgTable(
   ],
 );
 
+export const budgetsTable = pgTable(
+  "budgets",
+  {
+    id: serial("id").primaryKey(),
+    departmentId: text("department_id")
+      .notNull()
+      .references(() => departmentsTable.id),
+    // When null, the budget applies to the whole department across all models.
+    // When set, the budget is scoped to a single model within the department.
+    modelId: text("model_id").references(() => modelsTable.id),
+    // Monthly budget cap in USD.
+    amount: numeric("amount", { precision: 14, scale: 2 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    // At most one department-wide budget (model_id IS NULL) per department.
+    uniqueIndex("budgets_dept_wide_idx")
+      .on(t.departmentId)
+      .where(sql`${t.modelId} IS NULL`),
+    // At most one budget per (department, model) pair.
+    uniqueIndex("budgets_dept_model_idx")
+      .on(t.departmentId, t.modelId)
+      .where(sql`${t.modelId} IS NOT NULL`),
+  ],
+);
+
 export type Department = typeof departmentsTable.$inferSelect;
 export type Model = typeof modelsTable.$inferSelect;
 export type Employee = typeof employeesTable.$inferSelect;
 export type Agent = typeof agentsTable.$inferSelect;
 export type UsageEvent = typeof usageEventsTable.$inferSelect;
+export type Budget = typeof budgetsTable.$inferSelect;

@@ -40,3 +40,11 @@ codegen command.
   even though the new fields ARE present in `src/generated`. The full `codegen`
   script already chains both (`orval && pnpm -w run typecheck:libs`); if you run
   orval alone, run typecheck:libs yourself afterward.
+
+**Also:** codegen can also hang at "Cleaning output folder" even with prettier
+off. Workaround: temporarily set `clean: false` in `orval.config.ts`, manually
+`rm -rf` the generated dirs, run `pnpm exec orval`, then restore `clean: true`.
+
+**Env quirk:** long-running commands (orval, `tsc --noEmit`, `typecheck:libs`)
+get killed by the bash tool wrapper on return (exit -1/124). Verify code via the
+running web/API workflows + curl/screenshots instead of relying on standalone tsc.

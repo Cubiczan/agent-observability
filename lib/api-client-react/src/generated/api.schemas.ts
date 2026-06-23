@@ -39,6 +39,21 @@ export interface TrendPoint {
   tokens: number;
 }
 
+export interface DepartmentBudgetStatus {
+  /** Budget record id */
+  id: number;
+  /** Monthly budget cap in USD */
+  amount: number;
+  /** Actual spend in the current calendar month (USD) */
+  spend: number;
+  /** spend / amount (0-1+, can exceed 1 when over budget) */
+  utilization: number;
+  /** One of ok, warning (near budget), over (exceeded) */
+  status: string;
+  /** Calendar month the spend covers (YYYY-MM) */
+  period: string;
+}
+
 export interface DepartmentSummary {
   id: string;
   name: string;
@@ -51,6 +66,8 @@ export interface DepartmentSummary {
   runCount: number;
   /** Fraction of total org cost (0-1) */
   costShare: number;
+  /** Department-wide monthly budget status, or null when no budget is set. */
+  budget?: DepartmentBudgetStatus | null;
 }
 
 export interface EmployeeSummary {
@@ -79,6 +96,29 @@ export interface ModelUsage {
   tokens: number;
 }
 
+export interface Budget {
+  id: number;
+  departmentId: string;
+  departmentName: string;
+  /**
+     * Model scope, or null for a department-wide budget
+     * @nullable
+     */
+  modelId: string | null;
+  /** @nullable */
+  modelName: string | null;
+  /** Monthly budget cap in USD */
+  amount: number;
+  /** Actual spend in the current calendar month (USD) */
+  spend: number;
+  /** spend / amount (0-1+, can exceed 1 when over budget) */
+  utilization: number;
+  /** One of ok, warning (near budget), over (exceeded) */
+  status: string;
+  /** Calendar month the spend covers (YYYY-MM) */
+  period: string;
+}
+
 export interface DepartmentDetail {
   id: string;
   name: string;
@@ -92,6 +132,10 @@ export interface DepartmentDetail {
   costShare: number;
   employees: EmployeeSummary[];
   modelBreakdown: ModelUsage[];
+  /** Department-wide monthly budget status, or null when no budget is set. */
+  budget?: DepartmentBudgetStatus | null;
+  /** Per-model budgets configured for this department, with status. */
+  modelBudgets?: Budget[];
 }
 
 export interface Agent {
@@ -285,4 +329,14 @@ from?: FromDateParameter;
  */
 to?: ToDateParameter;
 };
+export interface BudgetInput {
+  departmentId: string;
+  /**
+     * Optional model scope; omit or null for a department-wide budget
+     * @nullable
+     */
+  modelId?: string | null;
+  /** Monthly budget cap in USD (must be greater than 0) */
+  amount: number;
+}
 

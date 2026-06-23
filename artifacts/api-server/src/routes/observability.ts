@@ -56,6 +56,23 @@ function rangeConds(alias: string, range: DateRange, params: unknown[]): string[
   return conds;
 }
 
+// Fraction of budget at/above which a department is flagged "near budget".
+const NEAR_BUDGET_THRESHOLD = 0.8;
+
+function budgetStatus(spend: number, amount: number): "ok" | "warning" | "over" {
+  if (amount <= 0) return "ok";
+  const utilization = spend / amount;
+  if (utilization >= 1) return "over";
+  if (utilization >= NEAR_BUDGET_THRESHOLD) return "warning";
+  return "ok";
+}
+
+// Current calendar month label (YYYY-MM) for the spend window budgets compare against.
+const CURRENT_PERIOD_SQL = `to_char(date_trunc('month', now()), 'YYYY-MM')`;
+// Predicate restricting usage_events to the current calendar month.
+const CURRENT_MONTH_FILTER = `u.timestamp >= date_trunc('month', now())
+  AND u.timestamp < date_trunc('month', now()) + interval '1 month'`;
+
 router.get("/overview", async (req, res) => {
   const range = parseRange(req.query);
   const totalsParams: unknown[] = [];
@@ -179,33 +196,53 @@ router.get("/departments", async (req, res) => {
       COALESCE(SUM(u.input_tokens + u.output_tokens), 0) AS tokens,
       COALESCE(SUM(u.input_tokens), 0) AS input_tokens,
       COALESCE(SUM(u.output_tokens), 0) AS output_tokens,
+      COALESCE(SUM(${COST_SQL}) FILTER (WHERE ${CURRENT_MONTH_FILTER}), 0) AS month_cost,
       COUNT(DISTINCT a.id) AS agent_count,
       COUNT(DISTINCT e.id) AS employee_count,
-      COUNT(u.id) AS run_count
+      COUNT(u.id) AS run_count,
+      b.id AS budget_id,
+      b.amount::numeric AS budget_amount,
+      ${CURRENT_PERIOD_SQL} AS period
     FROM departments d
     LEFT JOIN employees e ON e.department_id = d.id
     LEFT JOIN agents a ON a.employee_id = e.id
     LEFT JOIN models m ON m.id = a.model_id
     ${usageJoin}
-    GROUP BY d.id, d.name
+    LEFT JOIN budgets b ON b.department_id = d.id AND b.model_id IS NULL
+    GROUP BY d.id, d.name, b.id, b.amount
     ORDER BY cost DESC
   `,
     params,
   );
   const total = q.rows.reduce((s, r) => s + num(r.cost), 0);
   res.json(
-    q.rows.map((r) => ({
-      id: r.id,
-      name: r.name,
-      cost: num(r.cost),
-      tokens: num(r.tokens),
-      inputTokens: num(r.input_tokens),
-      outputTokens: num(r.output_tokens),
-      agentCount: num(r.agent_count),
-      employeeCount: num(r.employee_count),
-      runCount: num(r.run_count),
-      costShare: total > 0 ? num(r.cost) / total : 0,
-    })),
+    q.rows.map((r) => {
+      const monthCost = num(r.month_cost);
+      const budgetAmount = r.budget_amount === null ? null : num(r.budget_amount);
+      return {
+        id: r.id,
+        name: r.name,
+        cost: num(r.cost),
+        tokens: num(r.tokens),
+        inputTokens: num(r.input_tokens),
+        outputTokens: num(r.output_tokens),
+        agentCount: num(r.agent_count),
+        employeeCount: num(r.employee_count),
+        runCount: num(r.run_count),
+        costShare: total > 0 ? num(r.cost) / total : 0,
+        budget:
+          budgetAmount === null
+            ? null
+            : {
+                id: num(r.budget_id),
+                amount: budgetAmount,
+                spend: monthCost,
+                utilization: budgetAmount > 0 ? monthCost / budgetAmount : 0,
+                status: budgetStatus(monthCost, budgetAmount),
+                period: r.period,
+              },
+      };
+    }),
   );
 });
 
@@ -321,6 +358,10 @@ router.get("/departments/:departmentId", async (req, res) => {
   `);
   const total = num(totalQ.rows[0].total);
 
+  const allBudgets = await budgetRows(departmentId);
+  const deptBudget = allBudgets.find((b) => b.modelId === null) ?? null;
+  const modelBudgets = allBudgets.filter((b) => b.modelId !== null);
+
   res.json({
     id: deptQ.rows[0].id,
     name: deptQ.rows[0].name,
@@ -334,6 +375,17 @@ router.get("/departments/:departmentId", async (req, res) => {
     costShare: total > 0 ? cost / total : 0,
     employees,
     modelBreakdown: models,
+    budget: deptBudget
+      ? {
+          id: deptBudget.id,
+          amount: deptBudget.amount,
+          spend: deptBudget.spend,
+          utilization: deptBudget.utilization,
+          status: deptBudget.status,
+          period: deptBudget.period,
+        }
+      : null,
+    modelBudgets,
   });
 });
 
@@ -668,6 +720,160 @@ router.get("/agents/:agentId", async (req, res) => {
       cost: num(r.cost),
     })),
   });
+});
+
+type BudgetRow = {
+  id: number;
+  departmentId: string;
+  departmentName: string;
+  modelId: string | null;
+  modelName: string | null;
+  amount: number;
+  spend: number;
+  utilization: number;
+  status: "ok" | "warning" | "over";
+  period: string;
+};
+
+// Fetch budgets (optionally for a single department) with current-month spend.
+async function budgetRows(departmentId?: string): Promise<BudgetRow[]> {
+  const params: string[] = [];
+  let where = "";
+  if (departmentId) {
+    params.push(departmentId);
+    where = `WHERE b.department_id = $1`;
+  }
+  const q = await pool.query(
+    `
+    SELECT
+      b.id,
+      b.department_id,
+      d.name AS department_name,
+      b.model_id,
+      m.name AS model_name,
+      b.amount::numeric AS amount,
+      ${CURRENT_PERIOD_SQL} AS period,
+      COALESCE((
+        SELECT SUM(u.input_tokens::numeric / 1000000 * mm.input_price_per_million
+          + u.output_tokens::numeric / 1000000 * mm.output_price_per_million)
+        FROM usage_events u
+        JOIN agents a ON a.id = u.agent_id
+        JOIN employees e ON e.id = a.employee_id
+        JOIN models mm ON mm.id = a.model_id
+        WHERE e.department_id = b.department_id
+          AND (b.model_id IS NULL OR a.model_id = b.model_id)
+          AND ${CURRENT_MONTH_FILTER}
+      ), 0) AS spend
+    FROM budgets b
+    JOIN departments d ON d.id = b.department_id
+    LEFT JOIN models m ON m.id = b.model_id
+    ${where}
+    ORDER BY d.name ASC, m.name ASC NULLS FIRST
+  `,
+    params,
+  );
+  return q.rows.map((r) => {
+    const amount = num(r.amount);
+    const spend = num(r.spend);
+    return {
+      id: num(r.id),
+      departmentId: r.department_id,
+      departmentName: r.department_name,
+      modelId: r.model_id,
+      modelName: r.model_name,
+      amount,
+      spend,
+      utilization: amount > 0 ? spend / amount : 0,
+      status: budgetStatus(spend, amount),
+      period: r.period,
+    };
+  });
+}
+
+router.get("/budgets", async (_req, res) => {
+  res.json(await budgetRows());
+});
+
+router.put("/budgets", async (req, res) => {
+  const body = (req.body ?? {}) as {
+    departmentId?: unknown;
+    modelId?: unknown;
+    amount?: unknown;
+  };
+  const departmentId =
+    typeof body.departmentId === "string" ? body.departmentId.trim() : "";
+  const modelId =
+    body.modelId === null || body.modelId === undefined || body.modelId === ""
+      ? null
+      : typeof body.modelId === "string"
+        ? body.modelId.trim()
+        : null;
+  const amount = Number(body.amount);
+
+  if (!departmentId) {
+    res.status(400).json({ error: "departmentId is required" });
+    return;
+  }
+  if (!Number.isFinite(amount) || amount <= 0) {
+    res.status(400).json({ error: "amount must be a number greater than 0" });
+    return;
+  }
+
+  const deptQ = await pool.query(`SELECT id FROM departments WHERE id = $1`, [
+    departmentId,
+  ]);
+  if (deptQ.rows.length === 0) {
+    res.status(404).json({ error: "Department not found" });
+    return;
+  }
+  if (modelId !== null) {
+    const modelQ = await pool.query(`SELECT id FROM models WHERE id = $1`, [modelId]);
+    if (modelQ.rows.length === 0) {
+      res.status(404).json({ error: "Model not found" });
+      return;
+    }
+  }
+
+  // Upsert: NULL model_id rows are not handled by ON CONFLICT (NULLs distinct),
+  // so match the existing row explicitly using IS NOT DISTINCT FROM.
+  const existing = await pool.query(
+    `SELECT id FROM budgets
+     WHERE department_id = $1 AND model_id IS NOT DISTINCT FROM $2`,
+    [departmentId, modelId],
+  );
+  let budgetId: number;
+  if (existing.rows.length > 0) {
+    budgetId = existing.rows[0].id;
+    await pool.query(
+      `UPDATE budgets SET amount = $1, updated_at = now() WHERE id = $2`,
+      [amount, budgetId],
+    );
+  } else {
+    const inserted = await pool.query(
+      `INSERT INTO budgets (department_id, model_id, amount)
+       VALUES ($1, $2, $3) RETURNING id`,
+      [departmentId, modelId, amount],
+    );
+    budgetId = inserted.rows[0].id;
+  }
+
+  const rows = await budgetRows(departmentId);
+  const saved = rows.find((b) => b.id === budgetId);
+  res.json(saved);
+});
+
+router.delete("/budgets/:budgetId", async (req, res) => {
+  const budgetId = Number(req.params.budgetId);
+  if (!Number.isInteger(budgetId)) {
+    res.status(404).json({ error: "Budget not found" });
+    return;
+  }
+  const result = await pool.query(`DELETE FROM budgets WHERE id = $1`, [budgetId]);
+  if (result.rowCount === 0) {
+    res.status(404).json({ error: "Budget not found" });
+    return;
+  }
+  res.status(204).send();
 });
 
 export default router;

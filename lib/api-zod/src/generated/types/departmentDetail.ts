@@ -5,6 +5,8 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { Budget } from './budget';
+import type { DepartmentBudgetStatus } from './departmentBudgetStatus';
 import type { EmployeeSummary } from './employeeSummary';
 import type { ModelUsage } from './modelUsage';
 
@@ -21,4 +23,8 @@ export interface DepartmentDetail {
   costShare: number;
   employees: EmployeeSummary[];
   modelBreakdown: ModelUsage[];
+  /** Department-wide monthly budget status, or null when no budget is set. */
+  budget?: DepartmentBudgetStatus | null;
+  /** Per-model budgets configured for this department, with status. */
+  modelBudgets?: Budget[];
 }

@@ -5,6 +5,7 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { DepartmentBudgetStatus } from './departmentBudgetStatus';
 
 export interface DepartmentSummary {
   id: string;
@@ -18,4 +19,6 @@ export interface DepartmentSummary {
   runCount: number;
   /** Fraction of total org cost (0-1) */
   costShare: number;
+  /** Department-wide monthly budget status, or null when no budget is set. */
+  budget?: DepartmentBudgetStatus | null;
 }

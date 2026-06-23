@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 pnpm install --frozen-lockfile
-pnpm --filter db push
+pnpm --filter db push-force
 
 # Mirror the freshly-merged `main` to the GitHub and Codeberg copies. A mirror
 # failure (e.g. a slow Codeberg endpoint) should not fail the whole merge setup,

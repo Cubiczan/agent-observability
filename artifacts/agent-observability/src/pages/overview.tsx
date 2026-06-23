@@ -3,6 +3,7 @@ import { useDateRange } from "@/lib/date-range";
 import { formatUSD, formatTokens, formatNumber, formatPercent } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { BudgetBadge } from "@/components/budget-badge";
 import { Link } from "wouter";
 import {
   LineChart,
@@ -130,9 +131,14 @@ export default function Overview() {
               {departments?.slice(0, 5).map((dept) => (
                 <div key={dept.id} className="p-4 flex items-center justify-between group hover:bg-muted/50 transition-colors">
                   <div className="flex-1">
-                    <Link href={`/departments/${dept.id}`} className="font-medium hover:underline hover:text-primary">
-                      {dept.name}
-                    </Link>
+                    <div className="flex items-center gap-2">
+                      <Link href={`/departments/${dept.id}`} className="font-medium hover:underline hover:text-primary">
+                        {dept.name}
+                      </Link>
+                      {dept.budget && dept.budget.status !== "ok" && (
+                        <BudgetBadge status={dept.budget.status} />
+                      )}
+                    </div>
                     <div className="flex items-center gap-2 mt-1">
                       <span className="text-xs text-muted-foreground">{formatPercent(dept.costShare)}</span>
                       <div className="w-24 h-1.5 bg-secondary rounded-full overflow-hidden">

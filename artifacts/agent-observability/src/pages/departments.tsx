@@ -4,6 +4,7 @@ import { formatUSD, formatTokens, formatPercent, formatNumber } from "@/lib/form
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { BudgetBadge } from "@/components/budget-badge";
 import { Link } from "wouter";
 
 export default function Departments() {
@@ -31,6 +32,7 @@ export default function Departments() {
           <TableHeader>
             <TableRow>
               <TableHead>Department</TableHead>
+              <TableHead>Budget</TableHead>
               <TableHead className="text-right">Cost Share</TableHead>
               <TableHead className="text-right">Total Cost</TableHead>
               <TableHead className="text-right">Tokens</TableHead>
@@ -46,6 +48,13 @@ export default function Departments() {
                   <Link href={`/departments/${dept.id}`} className="hover:underline hover:text-primary">
                     {dept.name}
                   </Link>
+                </TableCell>
+                <TableCell>
+                  {dept.budget ? (
+                    <BudgetBadge status={dept.budget.status} showOk />
+                  ) : (
+                    <span className="text-xs text-muted-foreground">No budget</span>
+                  )}
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex items-center justify-end gap-2">

@@ -20,6 +20,8 @@ tags:
     description: Model usage and cost breakdown
   - name: agents
     description: Agent inventory with attribution
+  - name: budgets
+    description: Per-department (and optional per-model) monthly spend budgets
 paths:
   /healthz:
     get:
@@ -215,6 +217,76 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /budgets:
+    get:
+      operationId: listBudgets
+      tags: [budgets]
+      summary: List budgets
+      description: >-
+        All configured monthly budgets with current-month actual spend,
+        utilization, and over/near-budget status.
+      responses:
+        "200":
+          description: Budgets with actual-vs-budget calculation
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Budget"
+    put:
+      operationId: setBudget
+      tags: [budgets]
+      summary: Create or update a budget
+      description: >-
+        Upserts a monthly budget for a department, optionally scoped to a single
+        model. A department-wide budget uses a null modelId.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BudgetInput"
+      responses:
+        "200":
+          description: The saved budget with actual-vs-budget calculation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Budget"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Department or model not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /budgets/{budgetId}:
+    delete:
+      operationId: deleteBudget
+      tags: [budgets]
+      summary: Delete a budget
+      description: Removes a configured budget.
+      parameters:
+        - name: budgetId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /tiers:
     get:
       operationId: listTiers
@@ -363,6 +435,12 @@ components:
         costShare:
           type: number
           description: Fraction of total org cost (0-1)
+        budget:
+          oneOf:
+            - $ref: "#/components/schemas/DepartmentBudgetStatus"
+            - type: "null"
+          description: >-
+            Department-wide monthly budget status, or null when no budget is set.
     DepartmentDetail:
       type: object
       required:
@@ -407,6 +485,17 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ModelUsage"
+        budget:
+          oneOf:
+            - $ref: "#/components/schemas/DepartmentBudgetStatus"
+            - type: "null"
+          description: >-
+            Department-wide monthly budget status, or null when no budget is set.
+        modelBudgets:
+          type: array
+          description: Per-model budgets configured for this department, with status.
+          items:
+            $ref: "#/components/schemas/Budget"
     EmployeeSummary:
       type: object
       required:
@@ -773,3 +862,85 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/ModelUsage"
+    DepartmentBudgetStatus:
+      type: object
+      required:
+        - id
+        - amount
+        - spend
+        - utilization
+        - status
+        - period
+      properties:
+        id:
+          type: integer
+          description: Budget record id
+        amount:
+          type: number
+          description: Monthly budget cap in USD
+        spend:
+          type: number
+          description: Actual spend in the current calendar month (USD)
+        utilization:
+          type: number
+          description: spend / amount (0-1+, can exceed 1 when over budget)
+        status:
+          type: string
+          description: One of ok, warning (near budget), over (exceeded)
+        period:
+          type: string
+          description: Calendar month the spend covers (YYYY-MM)
+    Budget:
+      type: object
+      required:
+        - id
+        - departmentId
+        - departmentName
+        - modelId
+        - modelName
+        - amount
+        - spend
+        - utilization
+        - status
+        - period
+      properties:
+        id:
+          type: integer
+        departmentId:
+          type: string
+        departmentName:
+          type: string
+        modelId:
+          type: ["string", "null"]
+          description: Model scope, or null for a department-wide budget
+        modelName:
+          type: ["string", "null"]
+        amount:
+          type: number
+          description: Monthly budget cap in USD
+        spend:
+          type: number
+          description: Actual spend in the current calendar month (USD)
+        utilization:
+          type: number
+          description: spend / amount (0-1+, can exceed 1 when over budget)
+        status:
+          type: string
+          description: One of ok, warning (near budget), over (exceeded)
+        period:
+          type: string
+          description: Calendar month the spend covers (YYYY-MM)
+    BudgetInput:
+      type: object
+      required:
+        - departmentId
+        - amount
+      properties:
+        departmentId:
+          type: string
+        modelId:
+          type: ["string", "null"]
+          description: Optional model scope; omit or null for a department-wide budget
+        amount:
+          type: number
+          description: Monthly budget cap in USD (must be greater than 0)

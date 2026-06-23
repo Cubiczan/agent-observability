@@ -6,11 +6,15 @@
  * OpenAPI spec version: 0.1.0
  */
 import {
+  useMutation,
   useQuery
 } from '@tanstack/react-query';
 import type {
+  MutationFunction,
   QueryFunction,
   QueryKey,
+  UseMutationOptions,
+  UseMutationResult,
   UseQueryOptions,
   UseQueryResult
 } from '@tanstack/react-query';
@@ -18,6 +22,8 @@ import type {
 import type {
   Agent,
   AgentDetail,
+  Budget,
+  BudgetInput,
   DepartmentDetail,
   DepartmentSummary,
   EmployeeDetail,
@@ -37,7 +43,7 @@ import type {
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
-import type { ErrorType } from '../custom-fetch';
+import type { ErrorType , BodyType } from '../custom-fetch';
 
 type AwaitedInput<T> = PromiseLike<T> | T;
 
@@ -869,6 +875,227 @@ export function useGetAgent<TData = Awaited<ReturnType<typeof getAgent>>, TError
 
 
 
+
+export const getListBudgetsUrl = () => {
+
+
+
+
+  return `/api/budgets`
+}
+
+/**
+ * All configured monthly budgets with current-month actual spend, utilization, and over/near-budget status.
+ * @summary List budgets
+ */
+export const listBudgets = async ( options?: RequestInit): Promise<Budget[]> => {
+
+  return customFetch<Budget[]>(getListBudgetsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListBudgetsQueryKey = () => {
+    return [
+    `/api/budgets`
+    ] as const;
+    }
+
+
+export const getListBudgetsQueryOptions = <TData = Awaited<ReturnType<typeof listBudgets>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBudgets>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListBudgetsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listBudgets>>> = ({ signal }) => listBudgets({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listBudgets>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListBudgetsQueryResult = NonNullable<Awaited<ReturnType<typeof listBudgets>>>
+export type ListBudgetsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List budgets
+ */
+
+export function useListBudgets<TData = Awaited<ReturnType<typeof listBudgets>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listBudgets>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListBudgetsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getSetBudgetUrl = () => {
+
+
+
+
+  return `/api/budgets`
+}
+
+/**
+ * Upserts a monthly budget for a department, optionally scoped to a single model. A department-wide budget uses a null modelId.
+ * @summary Create or update a budget
+ */
+export const setBudget = async (budgetInput: BudgetInput, options?: RequestInit): Promise<Budget> => {
+
+  return customFetch<Budget>(getSetBudgetUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      budgetInput,)
+  }
+);}
+
+
+
+
+export const getSetBudgetMutationOptions = <TError = ErrorType<Error>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setBudget>>, TError,{data: BodyType<BudgetInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof setBudget>>, TError,{data: BodyType<BudgetInput>}, TContext> => {
+
+const mutationKey = ['setBudget'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setBudget>>, {data: BodyType<BudgetInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  setBudget(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetBudgetMutationResult = NonNullable<Awaited<ReturnType<typeof setBudget>>>
+    export type SetBudgetMutationBody = BodyType<BudgetInput>
+    export type SetBudgetMutationError = ErrorType<Error>
+
+    /**
+ * @summary Create or update a budget
+ */
+export const useSetBudget = <TError = ErrorType<Error>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setBudget>>, TError,{data: BodyType<BudgetInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof setBudget>>,
+        TError,
+        {data: BodyType<BudgetInput>},
+        TContext
+      > => {
+      return useMutation(getSetBudgetMutationOptions(options));
+    }
+
+export const getDeleteBudgetUrl = (budgetId: number,) => {
+
+
+
+
+  return `/api/budgets/${budgetId}`
+}
+
+/**
+ * Removes a configured budget.
+ * @summary Delete a budget
+ */
+export const deleteBudget = async (budgetId: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteBudgetUrl(budgetId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteBudgetMutationOptions = <TError = ErrorType<Error>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteBudget>>, TError,{budgetId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteBudget>>, TError,{budgetId: number}, TContext> => {
+
+const mutationKey = ['deleteBudget'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteBudget>>, {budgetId: number}> = (props) => {
+          const {budgetId} = props ?? {};
+
+          return  deleteBudget(budgetId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteBudgetMutationResult = NonNullable<Awaited<ReturnType<typeof deleteBudget>>>
+
+    export type DeleteBudgetMutationError = ErrorType<Error>
+
+    /**
+ * @summary Delete a budget
+ */
+export const useDeleteBudget = <TError = ErrorType<Error>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteBudget>>, TError,{budgetId: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteBudget>>,
+        TError,
+        {budgetId: number},
+        TContext
+      > => {
+      return useMutation(getDeleteBudgetMutationOptions(options));
+    }
 
 export const getListTiersUrl = () => {
 

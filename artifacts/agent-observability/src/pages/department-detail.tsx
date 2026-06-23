@@ -1,8 +1,9 @@
 import { useGetDepartment } from "@workspace/api-client-react";
-import { formatUSD, formatTokens, formatNumber } from "@/lib/format";
+import { formatUSD, formatTokens, formatNumber, formatPercent } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
+import { BudgetBadge } from "@/components/budget-badge";
 import { Breadcrumb, BreadcrumbItem, BreadcrumbLink, BreadcrumbList, BreadcrumbPage, BreadcrumbSeparator } from "@/components/ui/breadcrumb";
 import { Link, useParams } from "wouter";
 
@@ -38,9 +39,34 @@ export default function DepartmentDetail() {
         </BreadcrumbList>
       </Breadcrumb>
 
-      <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-3xl font-bold tracking-tight">{dept.name}</h1>
+        {dept.budget && <BudgetBadge status={dept.budget.status} showOk />}
       </div>
+
+      {dept.budget && (
+        <Card>
+          <CardContent className="p-4 flex flex-col gap-3">
+            <div className="flex items-baseline justify-between">
+              <div className="text-xs text-muted-foreground uppercase font-semibold">
+                Monthly Budget{dept.budget.period ? ` · ${dept.budget.period}` : ""}
+              </div>
+              <div className="text-sm font-mono">
+                {formatUSD(dept.budget.spend)} <span className="text-muted-foreground">/ {formatUSD(dept.budget.amount)}</span>
+              </div>
+            </div>
+            <div className="h-2.5 w-full bg-secondary rounded-full overflow-hidden">
+              <div
+                className={`h-full ${dept.budget.status === "over" ? "bg-destructive" : dept.budget.status === "warning" ? "bg-amber-500" : "bg-emerald-500"}`}
+                style={{ width: `${Math.min(dept.budget.utilization * 100, 100)}%` }}
+              />
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {formatPercent(dept.budget.utilization)} of monthly budget used
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card>
@@ -120,6 +146,33 @@ export default function DepartmentDetail() {
               ))}
             </div>
           </Card>
+
+          {dept.modelBudgets && dept.modelBudgets.length > 0 && (
+            <>
+              <h2 className="text-xl font-semibold tracking-tight">Per-Model Budgets</h2>
+              <Card>
+                <div className="p-0">
+                  {dept.modelBudgets.map((b, i) => (
+                    <div key={b.id} className={`p-4 flex flex-col gap-2 ${i !== 0 ? 'border-t border-border' : ''}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="font-medium">{b.modelName}</div>
+                        <BudgetBadge status={b.status} showOk />
+                      </div>
+                      <div className="h-2 w-full bg-secondary rounded-full overflow-hidden">
+                        <div
+                          className={`h-full ${b.status === "over" ? "bg-destructive" : b.status === "warning" ? "bg-amber-500" : "bg-emerald-500"}`}
+                          style={{ width: `${Math.min(b.utilization * 100, 100)}%` }}
+                        />
+                      </div>
+                      <div className="text-xs text-muted-foreground font-mono">
+                        {formatUSD(b.spend)} / {formatUSD(b.amount)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            </>
+          )}
         </div>
       </div>
     </div>
