@@ -21,7 +21,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Search, Activity, AlertTriangle, Coins, Timer, Inbox, DollarSign } from "lucide-react";
+import {
+  Search,
+  Activity,
+  AlertTriangle,
+  Coins,
+  Timer,
+  Inbox,
+  DollarSign,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
+} from "lucide-react";
 
 const ALL_KINDS = "__all__";
 
@@ -113,10 +124,32 @@ function SummaryCard({
   );
 }
 
+type SortColumn = "cost" | "tokens" | "latency";
+type SortDirection = "asc" | "desc";
+
+function SortIcon({ active, direction }: { active: boolean; direction: SortDirection }) {
+  if (!active) {
+    return <ArrowUpDown className="size-3.5 opacity-40" />;
+  }
+  return direction === "asc" ? (
+    <ArrowUp className="size-3.5 text-primary" />
+  ) : (
+    <ArrowDown className="size-3.5 text-primary" />
+  );
+}
+
+const SORT_ACCESSORS: Record<SortColumn, (span: TraceSpan) => number> = {
+  cost: (s) => s.estimatedCostUsd,
+  tokens: (s) => s.totalTokens,
+  latency: (s) => s.latencyMs,
+};
+
 export default function Traces() {
   const { params } = useDateRange();
   const [kind, setKind] = useState<string>(ALL_KINDS);
   const [search, setSearch] = useState("");
+  const [sortColumn, setSortColumn] = useState<SortColumn | null>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
 
   const queryParams = {
     ...params,
@@ -127,8 +160,26 @@ export default function Traces() {
   const { data: traces, isLoading: isTracesLoading } = useListTraces(queryParams);
   const { data: summary, isLoading: isSummaryLoading } = useGetTraceSummary(queryParams);
 
-  const spans = traces?.spans ?? [];
   const noData = traces?.noData ?? false;
+
+  function toggleSort(column: SortColumn) {
+    if (sortColumn === column) {
+      setSortDirection((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortColumn(column);
+      setSortDirection("desc");
+    }
+  }
+
+  const rawSpans = traces?.spans ?? [];
+  const spans =
+    sortColumn === null
+      ? rawSpans
+      : [...rawSpans].sort((a, b) => {
+          const accessor = SORT_ACCESSORS[sortColumn];
+          const diff = accessor(a) - accessor(b);
+          return sortDirection === "asc" ? diff : -diff;
+        });
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6 animate-in fade-in duration-500">
@@ -244,9 +295,39 @@ export default function Traces() {
                   <TableHead>Span</TableHead>
                   <TableHead>Kind</TableHead>
                   <TableHead>Model</TableHead>
-                  <TableHead className="text-right">Tokens (in / out)</TableHead>
-                  <TableHead className="text-right">Est. Cost</TableHead>
-                  <TableHead className="text-right">Latency</TableHead>
+                  <TableHead className="text-right p-0">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort("tokens")}
+                      className="inline-flex items-center justify-end gap-1 w-full h-12 px-4 hover:text-foreground transition-colors"
+                      data-testid="sort-tokens"
+                    >
+                      Tokens (in / out)
+                      <SortIcon active={sortColumn === "tokens"} direction={sortDirection} />
+                    </button>
+                  </TableHead>
+                  <TableHead className="text-right p-0">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort("cost")}
+                      className="inline-flex items-center justify-end gap-1 w-full h-12 px-4 hover:text-foreground transition-colors"
+                      data-testid="sort-cost"
+                    >
+                      Est. Cost
+                      <SortIcon active={sortColumn === "cost"} direction={sortDirection} />
+                    </button>
+                  </TableHead>
+                  <TableHead className="text-right p-0">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort("latency")}
+                      className="inline-flex items-center justify-end gap-1 w-full h-12 px-4 hover:text-foreground transition-colors"
+                      data-testid="sort-latency"
+                    >
+                      Latency
+                      <SortIcon active={sortColumn === "latency"} direction={sortDirection} />
+                    </button>
+                  </TableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
