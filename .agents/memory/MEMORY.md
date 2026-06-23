@@ -1,1 +1,2 @@
-- [Orval codegen quirk](orval-codegen.md) — prettier:true hangs codegen at "Cleaning output folder" in this env; keep prettier disabled.
+- [Orval codegen quirk](orval-codegen.md) — keep prettier disabled; orval ~100s must run sync in one call (clean:true deletes files); run typecheck:libs after.
+- [API server routing & dev loop](api-server-dev.md) — routes live directly under /api (no /observability prefix); dev is build&&start (no watch), restart workflow after route edits.
