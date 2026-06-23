@@ -83,14 +83,19 @@ alongside the cost data without being copied into the local database.
 
 ## Quality checks (validation / CI)
 
-The api-server is guarded by two registered validation steps that run as CI-style
-checks. A failure in either blocks task completion / merge, so a broken endpoint
-is caught automatically before it can ship and break the dashboard:
+Both the api-server and the web dashboard are guarded by registered validation
+steps that run as CI-style checks. A failure in any of them blocks task
+completion / merge, so a broken endpoint or a broken frontend is caught
+automatically before it can ship:
 
 - `test` → `pnpm --filter @workspace/api-server run test` — builds and runs the
   api-server route tests (observability, traces, budgets).
 - `typecheck` → `pnpm --filter @workspace/api-server run typecheck` — type-checks
   the api-server against its `tsconfig.json`.
+- `web-typecheck` → `pnpm --filter @workspace/agent-observability run typecheck` —
+  type-checks the web dashboard against its `tsconfig.json`, catching broken
+  frontend code (bad props, missing API-client exports, type drift) before it
+  reaches users.
 
 These are registered via the validation system (not a script in this repo); run
 the commands above directly to reproduce a check locally.
