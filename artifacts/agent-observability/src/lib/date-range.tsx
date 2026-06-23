@@ -76,14 +76,27 @@ function describe(state: DateRangeState): string {
 const STORAGE_KEY = "agent-observability:date-range";
 const PRESETS: Exclude<DateRangePreset, "custom">[] = ["all", "7d", "30d", "month"];
 
-/** Serialize the active range into URLSearchParams (omitting the default "all"). */
-function stateToSearch(state: DateRangeState): string {
-  const params = new URLSearchParams();
-  if (state.preset === "all") return "";
-  params.set("range", state.preset);
-  if (state.preset === "custom" && state.from && state.to) {
-    params.set("from", state.from);
-    params.set("to", state.to);
+/**
+ * Apply the active range onto the existing query string, preserving any other
+ * params (e.g. a page's sort/filter state). Mutating in place — rather than
+ * rebuilding from scratch — keeps key ordering stable so the sync effect below
+ * settles instead of ping-ponging with other params' own URL sync.
+ */
+function stateToSearch(state: DateRangeState, currentSearch: string): string {
+  const params = new URLSearchParams(currentSearch);
+  if (state.preset === "all") {
+    params.delete("range");
+    params.delete("from");
+    params.delete("to");
+  } else {
+    params.set("range", state.preset);
+    if (state.preset === "custom" && state.from && state.to) {
+      params.set("from", state.from);
+      params.set("to", state.to);
+    } else {
+      params.delete("from");
+      params.delete("to");
+    }
   }
   return params.toString();
 }
@@ -171,8 +184,8 @@ export function DateRangeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (typeof window === "undefined") return;
     lastLocation.current = location;
-    const desired = stateToSearch(state);
     const current = window.location.search.replace(/^\?/, "");
+    const desired = stateToSearch(state, current);
     if (current === desired) return;
     navigate(`${location}${desired ? `?${desired}` : ""}`, { replace: true });
   }, [state, location, navigate]);

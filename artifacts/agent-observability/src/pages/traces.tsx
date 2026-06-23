@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import {
   useListTraces,
@@ -136,6 +136,55 @@ function SummaryCard({
 type SortColumn = "time" | "name" | "cost" | "tokens" | "latency";
 type SortDirection = "asc" | "desc";
 
+const SORT_COLUMNS: SortColumn[] = ["time", "name", "cost", "tokens", "latency"];
+
+function isSortColumn(value: string | null | undefined): value is SortColumn {
+  return value != null && (SORT_COLUMNS as string[]).includes(value);
+}
+
+interface TracesView {
+  kind: string;
+  search: string;
+  sortColumn: SortColumn | null;
+  sortDirection: SortDirection;
+}
+
+const VIEW_STORAGE_KEY = "agent-observability:traces-view";
+
+function readStoredView(): Partial<TracesView> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(VIEW_STORAGE_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) as Partial<TracesView>;
+  } catch {
+    return {};
+  }
+}
+
+// Prefer the URL (so shared/reloaded links win), then fall back to the last
+// view saved in localStorage (so the sort survives <Link> navigation, which
+// drops the query string), and finally the defaults.
+function initialView(): TracesView {
+  const url =
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search)
+      : new URLSearchParams();
+  const stored = readStoredView();
+
+  const sortRaw = url.get("sort") ?? stored.sortColumn ?? null;
+  const sortColumn = isSortColumn(sortRaw) ? sortRaw : null;
+  const dirRaw = url.get("dir") ?? stored.sortDirection ?? "desc";
+  const sortDirection: SortDirection = dirRaw === "asc" ? "asc" : "desc";
+
+  return {
+    kind: url.get("kind") ?? stored.kind ?? ALL_KINDS,
+    search: url.get("q") ?? stored.search ?? "",
+    sortColumn,
+    sortDirection,
+  };
+}
+
 function SortIcon({ active, direction }: { active: boolean; direction: SortDirection }) {
   if (!active) {
     return <ArrowUpDown className="size-3.5 opacity-40" />;
@@ -213,11 +262,50 @@ function BreakdownCard({
 
 export default function Traces() {
   const { params } = useDateRange();
-  const [, navigate] = useLocation();
-  const [kind, setKind] = useState<string>(ALL_KINDS);
-  const [search, setSearch] = useState("");
-  const [sortColumn, setSortColumn] = useState<SortColumn | null>(null);
-  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+  const [location, navigate] = useLocation();
+  const [initial] = useState(initialView);
+  const [kind, setKind] = useState<string>(initial.kind);
+  const [search, setSearch] = useState(initial.search);
+  const [sortColumn, setSortColumn] = useState<SortColumn | null>(initial.sortColumn);
+  const [sortDirection, setSortDirection] = useState<SortDirection>(initial.sortDirection);
+
+  // Persist the current view so it survives <Link> navigation (which drops the
+  // query string) and restores on the next visit even without a shared URL.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(
+        VIEW_STORAGE_KEY,
+        JSON.stringify({ kind, search, sortColumn, sortDirection } satisfies TracesView),
+      );
+    } catch {
+      // ignore storage failures (private mode, quota, etc.)
+    }
+  }, [kind, search, sortColumn, sortDirection]);
+
+  // Reflect the view in the URL so it is shareable and survives a reload. Keys
+  // are set/deleted in place to preserve ordering and avoid fighting the
+  // date-range sync over the same query string.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const current = window.location.search.replace(/^\?/, "");
+    const next = new URLSearchParams(current);
+    if (kind !== ALL_KINDS) next.set("kind", kind);
+    else next.delete("kind");
+    const trimmed = search.trim();
+    if (trimmed) next.set("q", trimmed);
+    else next.delete("q");
+    if (sortColumn) {
+      next.set("sort", sortColumn);
+      next.set("dir", sortDirection);
+    } else {
+      next.delete("sort");
+      next.delete("dir");
+    }
+    const desired = next.toString();
+    if (current === desired) return;
+    navigate(`${location}${desired ? `?${desired}` : ""}`, { replace: true });
+  }, [kind, search, sortColumn, sortDirection, location, navigate]);
 
   const queryParams = {
     ...params,
