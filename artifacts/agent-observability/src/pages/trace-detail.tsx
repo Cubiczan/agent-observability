@@ -14,6 +14,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -227,6 +228,7 @@ export default function TraceDetail() {
   const { traceId } = useParams<{ traceId: string }>();
   const { params } = useDateRange();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [scale, setScale] = useState<"linear" | "log">("linear");
 
   const { data: trace, isLoading } = useGetTrace(traceId || "", params, {
     query: { enabled: !!traceId, queryKey: ["trace", traceId, params] },
@@ -238,6 +240,19 @@ export default function TraceDetail() {
   const totalMs = trace?.durationMs ?? 0;
 
   const rootName = spans.length > 0 ? spans[0].name : traceId;
+
+  // Project a millisecond offset within the trace (0..totalMs) onto a 0..100
+  // position. Log scale compresses long stretches of wall-clock time so that
+  // short spans and tightly-packed early activity stay legible when one step
+  // dominates the overall duration.
+  const project = (ms: number): number => {
+    if (totalMs <= 0) return 0;
+    const clamped = Math.min(Math.max(ms, 0), totalMs);
+    if (scale === "log") {
+      return (Math.log1p(clamped) / Math.log1p(totalMs)) * 100;
+    }
+    return (clamped / totalMs) * 100;
+  };
 
   function toggle(spanId: string) {
     setExpanded((prev) => {
@@ -328,20 +343,41 @@ export default function TraceDetail() {
           </div>
 
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-row items-center justify-between gap-4 space-y-0">
               <CardTitle>Span timeline</CardTitle>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground hidden sm:inline">Scale</span>
+                <ToggleGroup
+                  type="single"
+                  size="sm"
+                  value={scale}
+                  onValueChange={(v) => {
+                    if (v === "linear" || v === "log") setScale(v);
+                  }}
+                  className="border rounded-md"
+                >
+                  <ToggleGroupItem value="linear" data-testid="button-scale-linear">
+                    Linear
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="log" data-testid="button-scale-log">
+                    Log
+                  </ToggleGroupItem>
+                </ToggleGroup>
+              </div>
             </CardHeader>
             <CardContent className="p-0">
               <div className="divide-y">
                 {spans.map((span) => {
                   const depth = depths.get(span.spanId) ?? 0;
                   const startMs = Date.parse(span.timestamp);
-                  const offsetPct =
-                    totalMs > 0 && Number.isFinite(startMs)
-                      ? ((startMs - traceStartMs) / totalMs) * 100
-                      : 0;
+                  const hasOffset = totalMs > 0 && Number.isFinite(startMs);
+                  const startOffset = hasOffset ? startMs - traceStartMs : 0;
+                  const offsetPct = hasOffset ? project(startOffset) : 0;
+                  const endPct = hasOffset
+                    ? project(startOffset + span.latencyMs)
+                    : 100;
                   const widthPct =
-                    totalMs > 0 ? Math.max((span.latencyMs / totalMs) * 100, 0.75) : 100;
+                    totalMs > 0 ? Math.max(endPct - offsetPct, 0.5) : 100;
                   const isOpen = expanded.has(span.spanId);
                   const barColor =
                     span.status === "error" ? "bg-destructive" : KIND_BAR[span.kind] ?? "bg-primary";
@@ -370,6 +406,7 @@ export default function TraceDetail() {
                               style={{
                                 left: `${Math.min(Math.max(offsetPct, 0), 100)}%`,
                                 width: `${Math.min(widthPct, 100)}%`,
+                                minWidth: "3px",
                               }}
                             />
                           </div>
