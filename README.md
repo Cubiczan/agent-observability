@@ -81,6 +81,20 @@ alongside the cost data without being copied into the local database.
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API client + Zod schemas
 - `pnpm run typecheck` — full typecheck across all packages
 
+## Quality checks (validation / CI)
+
+The api-server is guarded by two registered validation steps that run as CI-style
+checks. A failure in either blocks task completion / merge, so a broken endpoint
+is caught automatically before it can ship and break the dashboard:
+
+- `test` → `pnpm --filter @workspace/api-server run test` — builds and runs the
+  api-server route tests (observability, traces, budgets).
+- `typecheck` → `pnpm --filter @workspace/api-server run typecheck` — type-checks
+  the api-server against its `tsconfig.json`.
+
+These are registered via the validation system (not a script in this repo); run
+the commands above directly to reproduce a check locally.
+
 Required env:
 
 - `DATABASE_URL` — Postgres connection string.
