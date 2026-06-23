@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { useListTraces, useGetTraceSummary, type TraceSpan } from "@workspace/api-client-react";
+import {
+  useListTraces,
+  useGetTraceSummary,
+  useGetTraceCostBreakdown,
+  type TraceSpan,
+  type TraceCostGroup,
+} from "@workspace/api-client-react";
 import { useDateRange } from "@/lib/date-range";
 import { formatTokens, formatNumber, formatUSD } from "@/lib/format";
 import { Card, CardContent } from "@/components/ui/card";
@@ -33,6 +39,8 @@ import {
   ArrowUp,
   ArrowDown,
   ArrowUpDown,
+  Cpu,
+  Boxes,
 } from "lucide-react";
 
 const ALL_KINDS = "__all__";
@@ -147,6 +155,62 @@ const SORT_COMPARATORS: Record<SortColumn, (a: TraceSpan, b: TraceSpan) => numbe
   latency: (a, b) => a.latencyMs - b.latencyMs,
 };
 
+function BreakdownCard({
+  title,
+  icon: Icon,
+  accent,
+  groups,
+  emptyLabel,
+}: {
+  title: string;
+  icon: typeof Activity;
+  accent: string;
+  groups: TraceCostGroup[];
+  emptyLabel: string;
+}) {
+  const top = groups.filter((g) => g.cost > 0).slice(0, 5);
+  const max = top.length > 0 ? top[0].cost : 0;
+  return (
+    <Card className="shadow-none">
+      <CardContent className="p-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <div className={`size-7 rounded-md flex items-center justify-center ${accent}`}>
+            <Icon className="size-3.5" />
+          </div>
+          <div className="text-sm font-semibold">{title}</div>
+        </div>
+        {top.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-2">{emptyLabel}</p>
+        ) : (
+          <div className="space-y-2.5">
+            {top.map((g) => (
+              <div key={g.key} className="space-y-1" data-testid={`breakdown-row-${g.key}`}>
+                <div className="flex items-baseline justify-between gap-2 text-sm">
+                  <span className="truncate font-medium" title={g.key}>
+                    {g.key}
+                  </span>
+                  <span className="font-mono whitespace-nowrap">{formatCost(g.cost)}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="h-1.5 flex-1 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-green-600/70"
+                      style={{ width: `${max > 0 ? Math.max((g.cost / max) * 100, 2) : 0}%` }}
+                    />
+                  </div>
+                  <span className="text-xs text-muted-foreground whitespace-nowrap tabular-nums">
+                    {Math.round(g.costShare * 100)}%
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function Traces() {
   const { params } = useDateRange();
   const [, navigate] = useLocation();
@@ -163,8 +227,14 @@ export default function Traces() {
 
   const { data: traces, isLoading: isTracesLoading } = useListTraces(queryParams);
   const { data: summary, isLoading: isSummaryLoading } = useGetTraceSummary(queryParams);
+  const { data: breakdown, isLoading: isBreakdownLoading } =
+    useGetTraceCostBreakdown(queryParams);
 
   const noData = traces?.noData ?? false;
+  const byModel = breakdown?.byModel ?? [];
+  const byApp = breakdown?.byApp ?? [];
+  const hasBreakdown =
+    !breakdown?.noData && (byModel.some((g) => g.cost > 0) || byApp.some((g) => g.cost > 0));
 
   function toggleSort(column: SortColumn) {
     if (sortColumn === column) {
@@ -236,6 +306,35 @@ export default function Traces() {
           </>
         )}
       </div>
+
+      {isBreakdownLoading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Skeleton className="h-[200px] w-full" />
+          <Skeleton className="h-[200px] w-full" />
+        </div>
+      ) : hasBreakdown ? (
+        <div className="space-y-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <BreakdownCard
+              title="Top models by est. cost"
+              icon={Cpu}
+              accent="bg-emerald-500/15 text-emerald-500"
+              groups={byModel}
+              emptyLabel="No model cost recorded for these spans."
+            />
+            <BreakdownCard
+              title="Top apps by est. cost"
+              icon={Boxes}
+              accent="bg-violet-500/15 text-violet-500"
+              groups={byApp}
+              emptyLabel="No app cost recorded for these spans."
+            />
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            Costs are Datadog estimates, grouped over the active date range and filters.
+          </p>
+        </div>
+      ) : null}
 
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1 max-w-md">

@@ -379,6 +379,28 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TraceSummary"
+  /traces/breakdown:
+    get:
+      operationId: getTraceCostBreakdown
+      tags: [traces]
+      summary: Estimated cost grouped by model and by app/agent
+      description: >-
+        Datadog-estimated cost grouped by model and by ml_app (agent), for the
+        spans matching the same window and filters as the trace list. Each group
+        list is sorted by estimated cost descending. When the org has no LLM Obs
+        data yet, `noData` is true and both lists are empty (not an error).
+      parameters:
+        - $ref: "#/components/parameters/FromDate"
+        - $ref: "#/components/parameters/ToDate"
+        - $ref: "#/components/parameters/SpanKind"
+        - $ref: "#/components/parameters/TraceQuery"
+      responses:
+        "200":
+          description: Cost broken down by model and by app/agent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TraceCostBreakdown"
 components:
   parameters:
     FromDate:
@@ -1203,3 +1225,48 @@ components:
         avgLatencyMs:
           type: number
           description: Mean span latency in milliseconds across matching spans
+    TraceCostGroup:
+      type: object
+      required:
+        - key
+        - cost
+        - spanCount
+        - totalTokens
+        - costShare
+      properties:
+        key:
+          type: string
+          description: >-
+            Group label — the model name or ml_app/agent. Falls back to a
+            placeholder like "(no model)" when the span has none.
+        cost:
+          type: number
+          description: Total Datadog-estimated cost in USD for spans in this group
+        spanCount:
+          type: integer
+        totalTokens:
+          type: integer
+        costShare:
+          type: number
+          description: Fraction of the matching spans' total estimated cost (0-1)
+    TraceCostBreakdown:
+      type: object
+      required:
+        - noData
+        - byModel
+        - byApp
+      properties:
+        noData:
+          type: boolean
+          description: True when Datadog has no LLM Obs data yet (empty, not an error)
+        byModel:
+          type: array
+          description: Estimated cost grouped by model, sorted by cost descending.
+          items:
+            $ref: "#/components/schemas/TraceCostGroup"
+        byApp:
+          type: array
+          description: >-
+            Estimated cost grouped by ml_app (agent), sorted by cost descending.
+          items:
+            $ref: "#/components/schemas/TraceCostGroup"

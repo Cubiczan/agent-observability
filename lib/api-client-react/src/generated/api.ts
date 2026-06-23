@@ -33,6 +33,7 @@ import type {
   GetDepartmentParams,
   GetEmployeeParams,
   GetOverviewParams,
+  GetTraceCostBreakdownParams,
   GetTraceParams,
   GetTraceSummaryParams,
   GetTrendsParams,
@@ -45,6 +46,7 @@ import type {
   ModelSummary,
   Overview,
   TierSummary,
+  TraceCostBreakdown,
   TraceDetail,
   TraceList,
   TraceSummary,
@@ -1468,6 +1470,91 @@ export function useGetTraceSummary<TData = Awaited<ReturnType<typeof getTraceSum
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetTraceSummaryQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetTraceCostBreakdownUrl = (params?: GetTraceCostBreakdownParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/traces/breakdown?${stringifiedParams}` : `/api/traces/breakdown`
+}
+
+/**
+ * Datadog-estimated cost grouped by model and by ml_app (agent), for the spans matching the same window and filters as the trace list. Each group list is sorted by estimated cost descending. When the org has no LLM Obs data yet, `noData` is true and both lists are empty (not an error).
+ * @summary Estimated cost grouped by model and by app/agent
+ */
+export const getTraceCostBreakdown = async (params?: GetTraceCostBreakdownParams, options?: RequestInit): Promise<TraceCostBreakdown> => {
+
+  return customFetch<TraceCostBreakdown>(getGetTraceCostBreakdownUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetTraceCostBreakdownQueryKey = (params?: GetTraceCostBreakdownParams,) => {
+    return [
+    `/api/traces/breakdown`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetTraceCostBreakdownQueryOptions = <TData = Awaited<ReturnType<typeof getTraceCostBreakdown>>, TError = ErrorType<unknown>>(params?: GetTraceCostBreakdownParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTraceCostBreakdown>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetTraceCostBreakdownQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getTraceCostBreakdown>>> = ({ signal }) => getTraceCostBreakdown(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getTraceCostBreakdown>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetTraceCostBreakdownQueryResult = NonNullable<Awaited<ReturnType<typeof getTraceCostBreakdown>>>
+export type GetTraceCostBreakdownQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Estimated cost grouped by model and by app/agent
+ */
+
+export function useGetTraceCostBreakdown<TData = Awaited<ReturnType<typeof getTraceCostBreakdown>>, TError = ErrorType<unknown>>(
+ params?: GetTraceCostBreakdownParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTraceCostBreakdown>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetTraceCostBreakdownQueryOptions(params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

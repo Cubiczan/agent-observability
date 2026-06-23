@@ -355,6 +355,26 @@ export interface TraceSummary {
   avgLatencyMs: number;
 }
 
+export interface TraceCostGroup {
+  /** Group label — the model name or ml_app/agent. Falls back to a placeholder like "(no model)" when the span has none. */
+  key: string;
+  /** Total Datadog-estimated cost in USD for spans in this group */
+  cost: number;
+  spanCount: number;
+  totalTokens: number;
+  /** Fraction of the matching spans' total estimated cost (0-1) */
+  costShare: number;
+}
+
+export interface TraceCostBreakdown {
+  /** True when Datadog has no LLM Obs data yet (empty, not an error) */
+  noData: boolean;
+  /** Estimated cost grouped by model, sorted by cost descending. */
+  byModel: TraceCostGroup[];
+  /** Estimated cost grouped by ml_app (agent), sorted by cost descending. */
+  byApp: TraceCostGroup[];
+}
+
 /**
  * Inclusive start of the reporting window as an ISO date (YYYY-MM-DD). When omitted, aggregation starts from the earliest usage event.
  */
@@ -505,6 +525,25 @@ to?: ToDateParameter;
 };
 
 export type GetTraceSummaryParams = {
+/**
+ * Inclusive start of the reporting window as an ISO date (YYYY-MM-DD). When omitted, aggregation starts from the earliest usage event.
+ */
+from?: FromDateParameter;
+/**
+ * Inclusive end of the reporting window as an ISO date (YYYY-MM-DD). Events on this day are included. When omitted, aggregation runs to the latest usage event.
+ */
+to?: ToDateParameter;
+/**
+ * Restrict to a single LLM Obs span kind (e.g. llm, agent, workflow, tool, task, embedding, retrieval). When omitted, all kinds are returned.
+ */
+kind?: SpanKindParameter;
+/**
+ * Free-text filter matched against span name, model, provider, kind, and ml_app.
+ */
+q?: TraceQueryParameter;
+};
+
+export type GetTraceCostBreakdownParams = {
 /**
  * Inclusive start of the reporting window as an ISO date (YYYY-MM-DD). When omitted, aggregation starts from the earliest usage event.
  */

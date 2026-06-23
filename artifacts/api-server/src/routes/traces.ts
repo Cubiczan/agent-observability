@@ -55,6 +55,42 @@ function applyFilters(
   return out;
 }
 
+interface CostGroup {
+  key: string;
+  cost: number;
+  spanCount: number;
+  totalTokens: number;
+  costShare: number;
+}
+
+// Group spans by an arbitrary key (model or ml_app), summing the Datadog
+// estimated cost and tokens, sorted by cost descending. `costShare` is each
+// group's fraction of the total estimated cost across all spans (0-1).
+function groupByCost(
+  spans: NormalizedSpan[],
+  keyOf: (s: NormalizedSpan) => string,
+): CostGroup[] {
+  const totalCost = spans.reduce((acc, s) => acc + s.estimatedCostUsd, 0);
+  const map = new Map<string, { cost: number; spanCount: number; totalTokens: number }>();
+  for (const s of spans) {
+    const key = keyOf(s);
+    const entry = map.get(key) ?? { cost: 0, spanCount: 0, totalTokens: 0 };
+    entry.cost += s.estimatedCostUsd;
+    entry.spanCount += 1;
+    entry.totalTokens += s.totalTokens;
+    map.set(key, entry);
+  }
+  return Array.from(map.entries())
+    .map(([key, v]) => ({
+      key,
+      cost: v.cost,
+      spanCount: v.spanCount,
+      totalTokens: v.totalTokens,
+      costShare: totalCost > 0 ? v.cost / totalCost : 0,
+    }))
+    .sort((a, b) => b.cost - a.cost);
+}
+
 function summarize(spans: NormalizedSpan[]) {
   let errorCount = 0;
   let inputTokens = 0;
@@ -104,9 +140,23 @@ router.get("/traces/summary", async (req, res) => {
   res.json({ noData, ...summarize(filtered) });
 });
 
+router.get("/traces/breakdown", async (req, res) => {
+  const range = parseRange(req.query as Record<string, unknown>);
+  const kind = singleString(req.query.kind);
+  const query = singleString(req.query.q);
+  const bounds = datadogBounds(range);
+
+  const { spans, noData } = await searchSpans({ from: bounds.from, to: bounds.to });
+  const filtered = applyFilters(spans, kind, query);
+  const byModel = groupByCost(filtered, (s) => s.model ?? "(no model)");
+  const byApp = groupByCost(filtered, (s) => s.mlApp ?? "(no app)");
+  res.json({ noData, byModel, byApp });
+});
+
 // Per-trace drill-down: every span sharing a traceId, ordered by start time, plus
-// wall-clock bounds for rendering a waterfall. Declared after /traces/summary so
-// the literal route wins over this parameterized one.
+// wall-clock bounds for rendering a waterfall. Declared after the literal
+// /traces/summary and /traces/breakdown routes so those win over this
+// parameterized one.
 router.get("/traces/:traceId", async (req, res) => {
   const range = parseRange(req.query as Record<string, unknown>);
   const bounds = datadogBounds(range);

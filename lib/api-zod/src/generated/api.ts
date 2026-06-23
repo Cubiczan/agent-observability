@@ -501,6 +501,7 @@ export const GetTraceResponse = zod.object({
   "inputTokens": zod.number(),
   "outputTokens": zod.number(),
   "totalTokens": zod.number(),
+  "estimatedCostUsd": zod.number().describe('Datadog-estimated total cost for the span in USD (converted from Datadog\'s micro-dollar units). Independent of the per-model pricing used elsewhere in the app.'),
   "latencyMs": zod.number().describe('Span duration in milliseconds'),
   "status": zod.string().describe('ok or error'),
   "timestamp": zod.string().describe('Span start time as an ISO 8601 timestamp'),
@@ -538,6 +539,36 @@ export const GetTraceSummaryResponse = zod.object({
   "totalTokens": zod.number(),
   "estimatedCostUsd": zod.number().describe('Total Datadog-estimated cost in USD across matching spans. Independent of the per-model pricing used elsewhere in the app.'),
   "avgLatencyMs": zod.number().describe('Mean span latency in milliseconds across matching spans')
+})
+
+
+/**
+ * Datadog-estimated cost grouped by model and by ml_app (agent), for the spans matching the same window and filters as the trace list. Each group list is sorted by estimated cost descending. When the org has no LLM Obs data yet, `noData` is true and both lists are empty (not an error).
+ * @summary Estimated cost grouped by model and by app/agent
+ */
+export const GetTraceCostBreakdownQueryParams = zod.object({
+  "from": zod.date().optional().describe('Inclusive start of the reporting window as an ISO date (YYYY-MM-DD). When omitted, aggregation starts from the earliest usage event.'),
+  "to": zod.date().optional().describe('Inclusive end of the reporting window as an ISO date (YYYY-MM-DD). Events on this day are included. When omitted, aggregation runs to the latest usage event.'),
+  "kind": zod.coerce.string().optional().describe('Restrict to a single LLM Obs span kind (e.g. llm, agent, workflow, tool, task, embedding, retrieval). When omitted, all kinds are returned.'),
+  "q": zod.coerce.string().optional().describe('Free-text filter matched against span name, model, provider, kind, and ml_app.')
+})
+
+export const GetTraceCostBreakdownResponse = zod.object({
+  "noData": zod.boolean().describe('True when Datadog has no LLM Obs data yet (empty, not an error)'),
+  "byModel": zod.array(zod.object({
+  "key": zod.string().describe('Group label — the model name or ml_app\/agent. Falls back to a placeholder like \"(no model)\" when the span has none.'),
+  "cost": zod.number().describe('Total Datadog-estimated cost in USD for spans in this group'),
+  "spanCount": zod.number(),
+  "totalTokens": zod.number(),
+  "costShare": zod.number().describe('Fraction of the matching spans\' total estimated cost (0-1)')
+})).describe('Estimated cost grouped by model, sorted by cost descending.'),
+  "byApp": zod.array(zod.object({
+  "key": zod.string().describe('Group label — the model name or ml_app\/agent. Falls back to a placeholder like \"(no model)\" when the span has none.'),
+  "cost": zod.number().describe('Total Datadog-estimated cost in USD for spans in this group'),
+  "spanCount": zod.number(),
+  "totalTokens": zod.number(),
+  "costShare": zod.number().describe('Fraction of the matching spans\' total estimated cost (0-1)')
+})).describe('Estimated cost grouped by ml_app (agent), sorted by cost descending.')
 })
 
 
