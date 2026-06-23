@@ -30,6 +30,10 @@ export interface NormalizedSpan {
   timestamp: string;
   mlApp: string | null;
   tags: string[];
+  /** Human-readable span input, flattened from Datadog's meta.input. */
+  input: string | null;
+  /** Human-readable span output, flattened from Datadog's meta.output. */
+  output: string | null;
 }
 
 export interface SearchSpansResult {
@@ -81,6 +85,35 @@ function str(v: unknown): string | null {
   return typeof v === "string" && v !== "" ? v : null;
 }
 
+// Flatten a Datadog LLM Obs meta.input / meta.output value into readable text.
+// Non-llm spans carry `{ value: "..." }`; llm spans carry `{ messages: [...] }`.
+// Anything else is JSON-serialized so nothing is silently dropped.
+function flattenIO(v: unknown): string | null {
+  if (v == null) return null;
+  if (typeof v === "string") return v !== "" ? v : null;
+  if (typeof v !== "object") return String(v);
+  const obj = v as Record<string, unknown>;
+  if (typeof obj.value === "string") return obj.value !== "" ? obj.value : null;
+  if (Array.isArray(obj.messages)) {
+    const parts = obj.messages
+      .map((m) => {
+        if (m && typeof m === "object") {
+          const content = (m as Record<string, unknown>).content;
+          if (typeof content === "string") return content;
+          return content != null ? JSON.stringify(content) : "";
+        }
+        return typeof m === "string" ? m : JSON.stringify(m);
+      })
+      .filter((s) => typeof s === "string" && s !== "");
+    return parts.length > 0 ? parts.join("\n") : null;
+  }
+  try {
+    return JSON.stringify(v);
+  } catch {
+    return null;
+  }
+}
+
 // Map a raw Datadog LLM Obs span event (the `attributes` object of a search hit)
 // into the flat shape the dashboard consumes.
 function normalizeSpan(id: string, attrs: Record<string, unknown>): NormalizedSpan {
@@ -93,6 +126,7 @@ function normalizeSpan(id: string, attrs: Record<string, unknown>): NormalizedSp
   // Datadog reports estimated cost in micro-dollars; convert to USD.
   const estimatedCostUsd = num(metrics.estimated_total_cost) / 1_000_000;
   const rawTags = Array.isArray(attrs.tags) ? (attrs.tags as unknown[]) : [];
+  const meta = (attrs.meta ?? {}) as Record<string, unknown>;
   return {
     spanId: str(attrs.span_id) ?? id,
     traceId: str(attrs.trace_id) ?? "",
@@ -110,6 +144,8 @@ function normalizeSpan(id: string, attrs: Record<string, unknown>): NormalizedSp
     timestamp: startNs > 0 ? new Date(startNs / 1_000_000).toISOString() : new Date(0).toISOString(),
     mlApp: str(attrs.ml_app),
     tags: rawTags.filter((t): t is string => typeof t === "string"),
+    input: flattenIO(meta.input ?? attrs.input),
+    output: flattenIO(meta.output ?? attrs.output),
   };
 }
 

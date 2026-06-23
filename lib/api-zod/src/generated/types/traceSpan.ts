@@ -35,4 +35,14 @@ export interface TraceSpan {
      */
   mlApp: string | null;
   tags: string[];
+  /**
+     * Flattened span input (meta.input) as readable text
+     * @nullable
+     */
+  input?: string | null;
+  /**
+     * Flattened span output (meta.output) as readable text
+     * @nullable
+     */
+  output?: string | null;
 }

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { useListTraces, useGetTraceSummary, type TraceSpan } from "@workspace/api-client-react";
 import { useDateRange } from "@/lib/date-range";
 import { formatTokens, formatNumber, formatUSD } from "@/lib/format";
@@ -146,6 +147,7 @@ const SORT_ACCESSORS: Record<SortColumn, (span: TraceSpan) => number> = {
 
 export default function Traces() {
   const { params } = useDateRange();
+  const [, navigate] = useLocation();
   const [kind, setKind] = useState<string>(ALL_KINDS);
   const [search, setSearch] = useState("");
   const [sortColumn, setSortColumn] = useState<SortColumn | null>(null);
@@ -333,7 +335,12 @@ export default function Traces() {
               </TableHeader>
               <TableBody>
                 {spans.map((span: TraceSpan) => (
-                  <TableRow key={span.spanId} data-testid={`row-span-${span.spanId}`}>
+                  <TableRow
+                    key={span.spanId}
+                    data-testid={`row-span-${span.spanId}`}
+                    className="cursor-pointer"
+                    onClick={() => navigate(`/traces/${span.traceId}`)}
+                  >
                     <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                       {formatTimestamp(span.timestamp)}
                     </TableCell>

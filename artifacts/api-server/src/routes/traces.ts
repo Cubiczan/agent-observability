@@ -104,4 +104,46 @@ router.get("/traces/summary", async (req, res) => {
   res.json({ noData, ...summarize(filtered) });
 });
 
+// Per-trace drill-down: every span sharing a traceId, ordered by start time, plus
+// wall-clock bounds for rendering a waterfall. Declared after /traces/summary so
+// the literal route wins over this parameterized one.
+router.get("/traces/:traceId", async (req, res) => {
+  const range = parseRange(req.query as Record<string, unknown>);
+  const bounds = datadogBounds(range);
+  const { traceId } = req.params;
+
+  // Filter by trace_id at the Datadog query layer so the global page limit never
+  // truncates a trace's spans (a generic page sorted by -timestamp could drop
+  // spans of an older trace). traceIds are decimal numeric strings — no escaping.
+  const { spans, noData } = await searchSpans({
+    from: bounds.from,
+    to: bounds.to,
+    query: `@trace_id:${traceId}`,
+  });
+  const traceSpans = spans
+    .filter((s) => s.traceId === traceId)
+    .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+
+  let startMs = Number.POSITIVE_INFINITY;
+  let endMs = Number.NEGATIVE_INFINITY;
+  for (const s of traceSpans) {
+    const start = Date.parse(s.timestamp);
+    if (!Number.isFinite(start)) continue;
+    startMs = Math.min(startMs, start);
+    endMs = Math.max(endMs, start + s.latencyMs);
+  }
+  const hasBounds = Number.isFinite(startMs) && Number.isFinite(endMs);
+
+  res.json({
+    traceId,
+    noData,
+    found: traceSpans.length > 0,
+    startTime: hasBounds ? new Date(startMs).toISOString() : null,
+    endTime: hasBounds ? new Date(endMs).toISOString() : null,
+    durationMs: hasBounds ? endMs - startMs : 0,
+    spans: traceSpans,
+    ...summarize(traceSpans),
+  });
+});
+
 export default router;

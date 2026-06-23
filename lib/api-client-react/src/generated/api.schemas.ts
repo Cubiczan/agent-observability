@@ -294,6 +294,45 @@ export interface TraceSpan {
      */
   mlApp: string | null;
   tags: string[];
+  /**
+     * Flattened span input (meta.input) as readable text
+     * @nullable
+     */
+  input?: string | null;
+  /**
+     * Flattened span output (meta.output) as readable text
+     * @nullable
+     */
+  output?: string | null;
+}
+
+export interface TraceDetail {
+  traceId: string;
+  /** True when Datadog has no LLM Obs data yet (empty, not an error) */
+  noData: boolean;
+  /** True when at least one span matched the requested traceId */
+  found: boolean;
+  /**
+     * Earliest span start in the trace as an ISO 8601 timestamp
+     * @nullable
+     */
+  startTime: string | null;
+  /**
+     * Latest span end in the trace as an ISO 8601 timestamp
+     * @nullable
+     */
+  endTime: string | null;
+  /** Wall-clock duration of the whole trace in milliseconds */
+  durationMs: number;
+  /** All spans sharing the traceId, ordered by start time */
+  spans: TraceSpan[];
+  spanCount: number;
+  errorCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  /** Mean span latency in milliseconds across the trace's spans */
+  avgLatencyMs: number;
 }
 
 export interface TraceList {
@@ -452,6 +491,17 @@ kind?: SpanKindParameter;
  * Free-text filter matched against span name, model, provider, kind, and ml_app.
  */
 q?: TraceQueryParameter;
+};
+
+export type GetTraceParams = {
+/**
+ * Inclusive start of the reporting window as an ISO date (YYYY-MM-DD). When omitted, aggregation starts from the earliest usage event.
+ */
+from?: FromDateParameter;
+/**
+ * Inclusive end of the reporting window as an ISO date (YYYY-MM-DD). Events on this day are included. When omitted, aggregation runs to the latest usage event.
+ */
+to?: ToDateParameter;
 };
 
 export type GetTraceSummaryParams = {

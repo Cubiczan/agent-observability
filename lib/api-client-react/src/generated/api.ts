@@ -33,6 +33,7 @@ import type {
   GetDepartmentParams,
   GetEmployeeParams,
   GetOverviewParams,
+  GetTraceParams,
   GetTraceSummaryParams,
   GetTrendsParams,
   HealthStatus,
@@ -44,6 +45,7 @@ import type {
   ModelSummary,
   Overview,
   TierSummary,
+  TraceDetail,
   TraceList,
   TraceSummary,
   TrendPoint
@@ -1291,6 +1293,96 @@ export function useListTraces<TData = Awaited<ReturnType<typeof listTraces>>, TE
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getListTracesQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetTraceUrl = (traceId: string,
+    params?: GetTraceParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : value.toString())
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/traces/${traceId}?${stringifiedParams}` : `/api/traces/${traceId}`
+}
+
+/**
+ * Every span sharing the given traceId, ordered by start time, with wall-clock bounds and aggregate totals — the data needed to render a step-by-step waterfall for one agent run. `found` is false when no span matches the traceId in the reporting window.
+ * @summary Single trace with its full span timeline
+ */
+export const getTrace = async (traceId: string,
+    params?: GetTraceParams, options?: RequestInit): Promise<TraceDetail> => {
+
+  return customFetch<TraceDetail>(getGetTraceUrl(traceId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetTraceQueryKey = (traceId: string,
+    params?: GetTraceParams,) => {
+    return [
+    `/api/traces/${traceId}`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetTraceQueryOptions = <TData = Awaited<ReturnType<typeof getTrace>>, TError = ErrorType<unknown>>(traceId: string,
+    params?: GetTraceParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTrace>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetTraceQueryKey(traceId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getTrace>>> = ({ signal }) => getTrace(traceId,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(traceId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getTrace>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetTraceQueryResult = NonNullable<Awaited<ReturnType<typeof getTrace>>>
+export type GetTraceQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Single trace with its full span timeline
+ */
+
+export function useGetTrace<TData = Awaited<ReturnType<typeof getTrace>>, TError = ErrorType<unknown>>(
+ traceId: string,
+    params?: GetTraceParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTrace>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetTraceQueryOptions(traceId,params,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

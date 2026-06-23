@@ -463,8 +463,58 @@ export const ListTracesResponse = zod.object({
   "status": zod.string().describe('ok or error'),
   "timestamp": zod.string().describe('Span start time as an ISO 8601 timestamp'),
   "mlApp": zod.string().nullable().describe('Datadog ml_app the span was emitted under'),
-  "tags": zod.array(zod.string())
+  "tags": zod.array(zod.string()),
+  "input": zod.string().nullish().describe('Flattened span input (meta.input) as readable text'),
+  "output": zod.string().nullish().describe('Flattened span output (meta.output) as readable text')
 }))
+})
+
+
+/**
+ * Every span sharing the given traceId, ordered by start time, with wall-clock bounds and aggregate totals — the data needed to render a step-by-step waterfall for one agent run. `found` is false when no span matches the traceId in the reporting window.
+ * @summary Single trace with its full span timeline
+ */
+export const GetTraceParams = zod.object({
+  "traceId": zod.coerce.string()
+})
+
+export const GetTraceQueryParams = zod.object({
+  "from": zod.date().optional().describe('Inclusive start of the reporting window as an ISO date (YYYY-MM-DD). When omitted, aggregation starts from the earliest usage event.'),
+  "to": zod.date().optional().describe('Inclusive end of the reporting window as an ISO date (YYYY-MM-DD). Events on this day are included. When omitted, aggregation runs to the latest usage event.')
+})
+
+export const GetTraceResponse = zod.object({
+  "traceId": zod.string(),
+  "noData": zod.boolean().describe('True when Datadog has no LLM Obs data yet (empty, not an error)'),
+  "found": zod.boolean().describe('True when at least one span matched the requested traceId'),
+  "startTime": zod.string().nullable().describe('Earliest span start in the trace as an ISO 8601 timestamp'),
+  "endTime": zod.string().nullable().describe('Latest span end in the trace as an ISO 8601 timestamp'),
+  "durationMs": zod.number().describe('Wall-clock duration of the whole trace in milliseconds'),
+  "spans": zod.array(zod.object({
+  "spanId": zod.string(),
+  "traceId": zod.string(),
+  "parentId": zod.string().nullish(),
+  "name": zod.string(),
+  "kind": zod.string().describe('LLM Obs span kind (llm, agent, workflow, tool, task, etc.)'),
+  "model": zod.string().nullable(),
+  "provider": zod.string().nullable(),
+  "inputTokens": zod.number(),
+  "outputTokens": zod.number(),
+  "totalTokens": zod.number(),
+  "latencyMs": zod.number().describe('Span duration in milliseconds'),
+  "status": zod.string().describe('ok or error'),
+  "timestamp": zod.string().describe('Span start time as an ISO 8601 timestamp'),
+  "mlApp": zod.string().nullable().describe('Datadog ml_app the span was emitted under'),
+  "tags": zod.array(zod.string()),
+  "input": zod.string().nullish().describe('Flattened span input (meta.input) as readable text'),
+  "output": zod.string().nullish().describe('Flattened span output (meta.output) as readable text')
+})).describe('All spans sharing the traceId, ordered by start time'),
+  "spanCount": zod.number(),
+  "errorCount": zod.number(),
+  "inputTokens": zod.number(),
+  "outputTokens": zod.number(),
+  "totalTokens": zod.number(),
+  "avgLatencyMs": zod.number().describe('Mean span latency in milliseconds across the trace\'s spans')
 })
 
 

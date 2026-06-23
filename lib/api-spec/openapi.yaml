@@ -334,6 +334,31 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TraceList"
+  /traces/{traceId}:
+    get:
+      operationId: getTrace
+      tags: [traces]
+      summary: Single trace with its full span timeline
+      description: >-
+        Every span sharing the given traceId, ordered by start time, with
+        wall-clock bounds and aggregate totals — the data needed to render a
+        step-by-step waterfall for one agent run. `found` is false when no span
+        matches the traceId in the reporting window.
+      parameters:
+        - name: traceId
+          in: path
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/FromDate"
+        - $ref: "#/components/parameters/ToDate"
+      responses:
+        "200":
+          description: The trace's spans and aggregates (possibly empty)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TraceDetail"
   /traces/summary:
     get:
       operationId: getTraceSummary
@@ -1074,6 +1099,64 @@ components:
           type: array
           items:
             type: string
+        input:
+          type: ["string", "null"]
+          description: Flattened span input (meta.input) as readable text
+        output:
+          type: ["string", "null"]
+          description: Flattened span output (meta.output) as readable text
+    TraceDetail:
+      type: object
+      required:
+        - traceId
+        - noData
+        - found
+        - startTime
+        - endTime
+        - durationMs
+        - spans
+        - spanCount
+        - errorCount
+        - inputTokens
+        - outputTokens
+        - totalTokens
+        - avgLatencyMs
+      properties:
+        traceId:
+          type: string
+        noData:
+          type: boolean
+          description: True when Datadog has no LLM Obs data yet (empty, not an error)
+        found:
+          type: boolean
+          description: True when at least one span matched the requested traceId
+        startTime:
+          type: ["string", "null"]
+          description: Earliest span start in the trace as an ISO 8601 timestamp
+        endTime:
+          type: ["string", "null"]
+          description: Latest span end in the trace as an ISO 8601 timestamp
+        durationMs:
+          type: number
+          description: Wall-clock duration of the whole trace in milliseconds
+        spans:
+          type: array
+          description: All spans sharing the traceId, ordered by start time
+          items:
+            $ref: "#/components/schemas/TraceSpan"
+        spanCount:
+          type: integer
+        errorCount:
+          type: integer
+        inputTokens:
+          type: integer
+        outputTokens:
+          type: integer
+        totalTokens:
+          type: integer
+        avgLatencyMs:
+          type: number
+          description: Mean span latency in milliseconds across the trace's spans
     TraceList:
       type: object
       required:
