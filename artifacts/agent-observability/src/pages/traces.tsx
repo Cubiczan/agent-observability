@@ -125,7 +125,7 @@ function SummaryCard({
   );
 }
 
-type SortColumn = "cost" | "tokens" | "latency";
+type SortColumn = "time" | "name" | "cost" | "tokens" | "latency";
 type SortDirection = "asc" | "desc";
 
 function SortIcon({ active, direction }: { active: boolean; direction: SortDirection }) {
@@ -139,10 +139,12 @@ function SortIcon({ active, direction }: { active: boolean; direction: SortDirec
   );
 }
 
-const SORT_ACCESSORS: Record<SortColumn, (span: TraceSpan) => number> = {
-  cost: (s) => s.estimatedCostUsd,
-  tokens: (s) => s.totalTokens,
-  latency: (s) => s.latencyMs,
+const SORT_COMPARATORS: Record<SortColumn, (a: TraceSpan, b: TraceSpan) => number> = {
+  time: (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+  name: (a, b) => a.name.localeCompare(b.name),
+  cost: (a, b) => a.estimatedCostUsd - b.estimatedCostUsd,
+  tokens: (a, b) => a.totalTokens - b.totalTokens,
+  latency: (a, b) => a.latencyMs - b.latencyMs,
 };
 
 export default function Traces() {
@@ -178,8 +180,7 @@ export default function Traces() {
     sortColumn === null
       ? rawSpans
       : [...rawSpans].sort((a, b) => {
-          const accessor = SORT_ACCESSORS[sortColumn];
-          const diff = accessor(a) - accessor(b);
+          const diff = SORT_COMPARATORS[sortColumn](a, b);
           return sortDirection === "asc" ? diff : -diff;
         });
 
@@ -293,8 +294,28 @@ export default function Traces() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Time</TableHead>
-                  <TableHead>Span</TableHead>
+                  <TableHead className="p-0">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort("time")}
+                      className="inline-flex items-center gap-1 h-12 px-4 hover:text-foreground transition-colors"
+                      data-testid="sort-time"
+                    >
+                      Time
+                      <SortIcon active={sortColumn === "time"} direction={sortDirection} />
+                    </button>
+                  </TableHead>
+                  <TableHead className="p-0">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort("name")}
+                      className="inline-flex items-center gap-1 h-12 px-4 hover:text-foreground transition-colors"
+                      data-testid="sort-name"
+                    >
+                      Span
+                      <SortIcon active={sortColumn === "name"} direction={sortDirection} />
+                    </button>
+                  </TableHead>
                   <TableHead>Kind</TableHead>
                   <TableHead>Model</TableHead>
                   <TableHead className="text-right p-0">
