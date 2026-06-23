@@ -61,12 +61,12 @@ const models = [
     weight: 4,
   },
   {
-    id: "claude-3-5-sonnet",
-    name: "Claude 3.5 Sonnet",
+    id: "claude-opus-4-8",
+    name: "Claude Opus 4.8",
     provider: "Anthropic",
     tier: "frontier",
-    inputPricePerMillion: "3.0000",
-    outputPricePerMillion: "15.0000",
+    inputPricePerMillion: "15.0000",
+    outputPricePerMillion: "75.0000",
     weight: 5,
   },
   // Research — web-grounded / research models
