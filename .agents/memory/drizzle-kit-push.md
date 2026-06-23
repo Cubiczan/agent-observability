@@ -16,5 +16,12 @@ confirmation*, not this truncate prompt.
 drizzle-kit asks to truncate first; that prompt can't be answered headlessly.
 
 **How to apply:** manually empty the table first, then push runs clean:
-`psql "$DATABASE_URL" -c "TRUNCATE <table>;"` then re-run `db run push`. Safe when
-you're about to reload that data anyway (e.g. via the ingest `--reset` path).
+`psql "$DATABASE_URL" -c "TRUNCATE <table>;"` then re-run `db run push`. Safe ONLY
+when you're about to reload that data anyway (e.g. via the ingest `--reset` path).
+
+**Caution / related:** truncating is destructive — never do it to a populated table
+whose data you can't reload (e.g. `usage_events`). Worse, when this prompt aborts a
+push, it also silently skips creating *other* new tables in the same diff (e.g.
+`budgets`), causing later `relation "..." does not exist` 500s. In that case do NOT
+truncate — hand-create the missing table from the schema. See
+[budgets-table-missing.md](budgets-table-missing.md).
