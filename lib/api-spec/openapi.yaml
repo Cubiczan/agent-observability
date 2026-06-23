@@ -383,12 +383,15 @@ paths:
     get:
       operationId: getTraceCostBreakdown
       tags: [traces]
-      summary: Estimated cost grouped by model and by app/agent
+      summary: Estimated cost grouped by model, by app/agent, and by department
       description: >-
-        Datadog-estimated cost grouped by model and by ml_app (agent), for the
-        spans matching the same window and filters as the trace list. Each group
-        list is sorted by estimated cost descending. When the org has no LLM Obs
-        data yet, `noData` is true and both lists are empty (not an error).
+        Datadog-estimated cost grouped by model, by ml_app (agent), and by
+        department/team, for the spans matching the same window and filters as
+        the trace list. Department is derived from an explicit `department:`,
+        `dept:`, or `team:` span tag, falling back to mapping the span's ml_app
+        to its owning agent's department. Each group list is sorted by estimated
+        cost descending. When the org has no LLM Obs data yet, `noData` is true
+        and all lists are empty (not an error).
       parameters:
         - $ref: "#/components/parameters/FromDate"
         - $ref: "#/components/parameters/ToDate"
@@ -1255,6 +1258,7 @@ components:
         - noData
         - byModel
         - byApp
+        - byDepartment
       properties:
         noData:
           type: boolean
@@ -1268,5 +1272,14 @@ components:
           type: array
           description: >-
             Estimated cost grouped by ml_app (agent), sorted by cost descending.
+          items:
+            $ref: "#/components/schemas/TraceCostGroup"
+        byDepartment:
+          type: array
+          description: >-
+            Estimated cost grouped by department/team, sorted by cost
+            descending. Department is derived from an explicit department/dept/
+            team span tag, falling back to the span's ml_app → agent → owning
+            department mapping; spans with neither fall under "(unattributed)".
           items:
             $ref: "#/components/schemas/TraceCostGroup"

@@ -1,5 +1,7 @@
 import { Router, type IRouter } from "express";
+import { pool } from "@workspace/db";
 import { searchSpans, type NormalizedSpan } from "../lib/datadog";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
@@ -91,6 +93,56 @@ function groupByCost(
     .sort((a, b) => b.cost - a.cost);
 }
 
+// Cache the ml_app → department map briefly. The breakdown route is low-traffic
+// but called once per page load; a short TTL avoids a DB round-trip on every hit
+// while still picking up org/directory changes within a minute.
+const DEPT_MAP_TTL_MS = 60_000;
+let deptMapCache: { map: Map<string, string>; expires: number } | null = null;
+
+// Build a map from agent id (the value carried in a span's ml_app) to its owning
+// department name, joining agents → employees → departments. On any DB error we
+// return an empty map so department grouping degrades gracefully (everything
+// falls back to tags or "(unattributed)") instead of failing the whole route.
+async function loadDepartmentMap(): Promise<Map<string, string>> {
+  if (deptMapCache && deptMapCache.expires > Date.now()) {
+    return deptMapCache.map;
+  }
+  const map = new Map<string, string>();
+  try {
+    const q = await pool.query<{ agent_id: string; dept_name: string }>(
+      `SELECT a.id AS agent_id, d.name AS dept_name
+         FROM agents a
+         JOIN employees e ON e.id = a.employee_id
+         JOIN departments d ON d.id = e.department_id`,
+    );
+    for (const row of q.rows) {
+      map.set(row.agent_id, row.dept_name);
+    }
+  } catch (err) {
+    logger.warn({ err }, "Failed to load department map for trace cost breakdown");
+  }
+  deptMapCache = { map, expires: Date.now() + DEPT_MAP_TTL_MS };
+  return map;
+}
+
+const DEPT_TAG_RE = /^(?:department|dept|team):(.+)$/i;
+
+// Derive the department/team for a span. Prefer an explicit department/dept/team
+// span tag, then fall back to mapping the span's ml_app to its owning agent's
+// department. Spans with neither are bucketed under "(unattributed)" so they
+// remain visible rather than silently dropped.
+function departmentOf(span: NormalizedSpan, mlAppToDept: Map<string, string>): string {
+  for (const tag of span.tags) {
+    const m = DEPT_TAG_RE.exec(tag);
+    if (m && m[1].trim() !== "") return m[1].trim();
+  }
+  if (span.mlApp) {
+    const dept = mlAppToDept.get(span.mlApp);
+    if (dept) return dept;
+  }
+  return "(unattributed)";
+}
+
 function summarize(spans: NormalizedSpan[]) {
   let errorCount = 0;
   let inputTokens = 0;
@@ -148,9 +200,11 @@ router.get("/traces/breakdown", async (req, res) => {
 
   const { spans, noData } = await searchSpans({ from: bounds.from, to: bounds.to });
   const filtered = applyFilters(spans, kind, query);
+  const mlAppToDept = await loadDepartmentMap();
   const byModel = groupByCost(filtered, (s) => s.model ?? "(no model)");
   const byApp = groupByCost(filtered, (s) => s.mlApp ?? "(no app)");
-  res.json({ noData, byModel, byApp });
+  const byDepartment = groupByCost(filtered, (s) => departmentOf(s, mlAppToDept));
+  res.json({ noData, byModel, byApp, byDepartment });
 });
 
 // Per-trace drill-down: every span sharing a traceId, ordered by start time, plus

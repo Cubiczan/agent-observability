@@ -1498,8 +1498,8 @@ export const getGetTraceCostBreakdownUrl = (params?: GetTraceCostBreakdownParams
 }
 
 /**
- * Datadog-estimated cost grouped by model and by ml_app (agent), for the spans matching the same window and filters as the trace list. Each group list is sorted by estimated cost descending. When the org has no LLM Obs data yet, `noData` is true and both lists are empty (not an error).
- * @summary Estimated cost grouped by model and by app/agent
+ * Datadog-estimated cost grouped by model, by ml_app (agent), and by department/team, for the spans matching the same window and filters as the trace list. Department is derived from an explicit `department:`, `dept:`, or `team:` span tag, falling back to mapping the span's ml_app to its owning agent's department. Each group list is sorted by estimated cost descending. When the org has no LLM Obs data yet, `noData` is true and all lists are empty (not an error).
+ * @summary Estimated cost grouped by model, by app/agent, and by department
  */
 export const getTraceCostBreakdown = async (params?: GetTraceCostBreakdownParams, options?: RequestInit): Promise<TraceCostBreakdown> => {
 
@@ -1546,7 +1546,7 @@ export type GetTraceCostBreakdownQueryError = ErrorType<unknown>
 
 
 /**
- * @summary Estimated cost grouped by model and by app/agent
+ * @summary Estimated cost grouped by model, by app/agent, and by department
  */
 
 export function useGetTraceCostBreakdown<TData = Awaited<ReturnType<typeof getTraceCostBreakdown>>, TError = ErrorType<unknown>>(

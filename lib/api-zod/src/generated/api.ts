@@ -543,8 +543,8 @@ export const GetTraceSummaryResponse = zod.object({
 
 
 /**
- * Datadog-estimated cost grouped by model and by ml_app (agent), for the spans matching the same window and filters as the trace list. Each group list is sorted by estimated cost descending. When the org has no LLM Obs data yet, `noData` is true and both lists are empty (not an error).
- * @summary Estimated cost grouped by model and by app/agent
+ * Datadog-estimated cost grouped by model, by ml_app (agent), and by department/team, for the spans matching the same window and filters as the trace list. Department is derived from an explicit `department:`, `dept:`, or `team:` span tag, falling back to mapping the span's ml_app to its owning agent's department. Each group list is sorted by estimated cost descending. When the org has no LLM Obs data yet, `noData` is true and all lists are empty (not an error).
+ * @summary Estimated cost grouped by model, by app/agent, and by department
  */
 export const GetTraceCostBreakdownQueryParams = zod.object({
   "from": zod.date().optional().describe('Inclusive start of the reporting window as an ISO date (YYYY-MM-DD). When omitted, aggregation starts from the earliest usage event.'),
@@ -568,7 +568,14 @@ export const GetTraceCostBreakdownResponse = zod.object({
   "spanCount": zod.number(),
   "totalTokens": zod.number(),
   "costShare": zod.number().describe('Fraction of the matching spans\' total estimated cost (0-1)')
-})).describe('Estimated cost grouped by ml_app (agent), sorted by cost descending.')
+})).describe('Estimated cost grouped by ml_app (agent), sorted by cost descending.'),
+  "byDepartment": zod.array(zod.object({
+  "key": zod.string().describe('Group label — the model name or ml_app\/agent. Falls back to a placeholder like \"(no model)\" when the span has none.'),
+  "cost": zod.number().describe('Total Datadog-estimated cost in USD for spans in this group'),
+  "spanCount": zod.number(),
+  "totalTokens": zod.number(),
+  "costShare": zod.number().describe('Fraction of the matching spans\' total estimated cost (0-1)')
+})).describe('Estimated cost grouped by department\/team, sorted by cost descending. Department is derived from an explicit department\/dept\/ team span tag, falling back to the span\'s ml_app → agent → owning department mapping; spans with neither fall under \"(unattributed)\".')
 })
 
 

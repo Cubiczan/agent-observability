@@ -41,6 +41,7 @@ import {
   ArrowUpDown,
   Cpu,
   Boxes,
+  Building2,
 } from "lucide-react";
 
 const ALL_KINDS = "__all__";
@@ -321,8 +322,12 @@ export default function Traces() {
   const noData = traces?.noData ?? false;
   const byModel = breakdown?.byModel ?? [];
   const byApp = breakdown?.byApp ?? [];
+  const byDepartment = breakdown?.byDepartment ?? [];
   const hasBreakdown =
-    !breakdown?.noData && (byModel.some((g) => g.cost > 0) || byApp.some((g) => g.cost > 0));
+    !breakdown?.noData &&
+    (byModel.some((g) => g.cost > 0) ||
+      byApp.some((g) => g.cost > 0) ||
+      byDepartment.some((g) => g.cost > 0));
 
   function toggleSort(column: SortColumn) {
     if (sortColumn === column) {
@@ -396,13 +401,14 @@ export default function Traces() {
       </div>
 
       {isBreakdownLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <Skeleton className="h-[200px] w-full" />
           <Skeleton className="h-[200px] w-full" />
           <Skeleton className="h-[200px] w-full" />
         </div>
       ) : hasBreakdown ? (
         <div className="space-y-2">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             <BreakdownCard
               title="Top models by est. cost"
               icon={Cpu}
@@ -416,6 +422,13 @@ export default function Traces() {
               accent="bg-violet-500/15 text-violet-500"
               groups={byApp}
               emptyLabel="No app cost recorded for these spans."
+            />
+            <BreakdownCard
+              title="Top departments by est. cost"
+              icon={Building2}
+              accent="bg-amber-500/15 text-amber-500"
+              groups={byDepartment}
+              emptyLabel="No department cost recorded for these spans."
             />
           </div>
           <p className="text-[10px] text-muted-foreground">

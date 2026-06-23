@@ -14,4 +14,6 @@ export interface TraceCostBreakdown {
   byModel: TraceCostGroup[];
   /** Estimated cost grouped by ml_app (agent), sorted by cost descending. */
   byApp: TraceCostGroup[];
+  /** Estimated cost grouped by department/team, sorted by cost descending. Department is derived from an explicit department/dept/ team span tag, falling back to the span's ml_app → agent → owning department mapping; spans with neither fall under "(unattributed)". */
+  byDepartment: TraceCostGroup[];
 }

@@ -65,6 +65,21 @@ interface TraceDetailResponse {
   avgLatencyMs: number;
 }
 
+interface TraceCostGroup {
+  key: string;
+  cost: number;
+  spanCount: number;
+  totalTokens: number;
+  costShare: number;
+}
+
+interface TraceBreakdownResponse {
+  noData: boolean;
+  byModel: TraceCostGroup[];
+  byApp: TraceCostGroup[];
+  byDepartment: TraceCostGroup[];
+}
+
 async function getJson<T>(url: string): Promise<{ status: number; body: T }> {
   const res = await realFetch(url);
   const body = (await res.json()) as T;
@@ -226,6 +241,130 @@ describe("traces routes", () => {
     assert.equal(body.totalTokens, 55);
     // (1 + 2) ms / 2 spans = 1.5 ms average.
     assert.equal(body.avgLatencyMs, 1.5);
+  });
+
+  test("GET /traces/breakdown groups estimated cost by model, app and department", async () => {
+    // Spans carry estimated cost (micro-dollars) and explicit department tags so
+    // the grouping is deterministic without depending on the directory DB.
+    nextDatadog = datadogSpans([
+      {
+        span_id: "b1",
+        name: "gpt call",
+        span_kind: "llm",
+        model_name: "gpt-4o",
+        ml_app: "support-bot",
+        duration: 1_000_000,
+        tags: ["department:Engineering"],
+        metrics: { input_tokens: 10, output_tokens: 5, total_tokens: 15, estimated_total_cost: 3_000_000 },
+      },
+      {
+        span_id: "b2",
+        name: "gpt mini",
+        span_kind: "llm",
+        model_name: "gpt-4o",
+        ml_app: "billing-agent",
+        duration: 1_000_000,
+        tags: ["team:Finance"],
+        metrics: { input_tokens: 4, output_tokens: 1, total_tokens: 5, estimated_total_cost: 1_000_000 },
+      },
+      {
+        span_id: "b3",
+        name: "claude call",
+        span_kind: "llm",
+        model_name: "claude-3",
+        ml_app: "support-bot",
+        duration: 1_000_000,
+        tags: ["dept:Engineering"],
+        metrics: { input_tokens: 2, output_tokens: 1, total_tokens: 3, estimated_total_cost: 2_000_000 },
+      },
+    ]);
+
+    const { status, body } = await getJson<TraceBreakdownResponse>(`${base}/traces/breakdown`);
+    assert.equal(status, 200);
+    assert.equal(body.noData, false);
+
+    // Total cost = $6. By model: gpt-4o $4 (b1+b2), claude-3 $2 (b3).
+    assert.deepEqual(
+      body.byModel.map((g) => [g.key, g.cost]),
+      [
+        ["gpt-4o", 4],
+        ["claude-3", 2],
+      ],
+    );
+
+    // By department: Engineering $5 (b1+b3, via department:/dept: tags), Finance $1 (team: tag).
+    assert.deepEqual(
+      body.byDepartment.map((g) => [g.key, g.cost, g.spanCount]),
+      [
+        ["Engineering", 5, 2],
+        ["Finance", 1, 1],
+      ],
+    );
+    // Cost share is each group's fraction of the $6 total.
+    assert.ok(Math.abs(body.byDepartment[0].costShare - 5 / 6) < 1e-9);
+  });
+
+  test("GET /traces/breakdown buckets spans without department attribution as unattributed", async () => {
+    // No department/team tags; ml_app values don't match any seeded agent id, so
+    // every span falls back to the (unattributed) bucket.
+    nextDatadog = datadogSpans([
+      {
+        span_id: "u1",
+        name: "gpt call",
+        span_kind: "llm",
+        model_name: "gpt-4o",
+        ml_app: "no-such-agent",
+        duration: 1_000_000,
+        metrics: { input_tokens: 1, output_tokens: 1, total_tokens: 2, estimated_total_cost: 5_000_000 },
+      },
+    ]);
+
+    const { body } = await getJson<TraceBreakdownResponse>(`${base}/traces/breakdown`);
+    assert.deepEqual(
+      body.byDepartment.map((g) => g.key),
+      ["(unattributed)"],
+    );
+    assert.equal(body.byDepartment[0].cost, 5);
+  });
+
+  test("GET /traces/breakdown respects kind and search filters", async () => {
+    nextDatadog = datadogSpans([
+      {
+        span_id: "f1",
+        name: "gpt call",
+        span_kind: "llm",
+        model_name: "gpt-4o",
+        ml_app: "support-bot",
+        duration: 1_000_000,
+        tags: ["department:Engineering"],
+        metrics: { input_tokens: 1, output_tokens: 1, total_tokens: 2, estimated_total_cost: 4_000_000 },
+      },
+      {
+        span_id: "f2",
+        name: "planner step",
+        span_kind: "agent",
+        ml_app: "support-bot",
+        duration: 1_000_000,
+        tags: ["department:Sales"],
+        metrics: { input_tokens: 1, output_tokens: 0, total_tokens: 1, estimated_total_cost: 9_000_000 },
+      },
+    ]);
+
+    // kind=llm drops the agent span, leaving only the Engineering department.
+    const { body } = await getJson<TraceBreakdownResponse>(`${base}/traces/breakdown?kind=llm`);
+    assert.deepEqual(
+      body.byDepartment.map((g) => [g.key, g.cost]),
+      [["Engineering", 4]],
+    );
+  });
+
+  test("GET /traces/breakdown reports empty groups when there is no data", async () => {
+    nextDatadog = noIndexError;
+    const { body } = await getJson<TraceBreakdownResponse>(`${base}/traces/breakdown`);
+    assert.equal(body.noData, true);
+    assert.deepEqual(body.byModel, []);
+    assert.deepEqual(body.byApp, []);
+    assert.deepEqual(body.byDepartment, []);
   });
 
   test("GET /traces passes through Datadog's empty-org no-data state", async () => {
