@@ -915,6 +915,88 @@ describe("Traces + DateRangeProvider shared link", () => {
     expect(lastBreakdownParams().model).toBe("gpt-4o");
   });
 
+  it("keeps the default navigate mode showing every breakdown group even with an active group, while the list/summary still narrow", async () => {
+    // The mirror image of the drill-in test above. A cold shared link carries an
+    // active group (group=model&gval=gpt-4o) but leaves bmode at its default
+    // ("navigate", which writes no bmode param). The default mode must keep the
+    // breakdown query un-narrowed so every group card stays visible as a
+    // navigation aid, while the list/summary queries still scope to the active
+    // group. The *absence* of a model dimension in lastBreakdownParams() — paired
+    // with its presence in lastListParams() — is the observable proof.
+    window.localStorage.clear();
+    window.history.replaceState(
+      {},
+      "",
+      "/traces?group=model&gval=gpt-4o",
+    );
+
+    render(
+      <DateRangeProvider>
+        <NavControls />
+        <Traces />
+      </DateRangeProvider>,
+    );
+
+    // The group filter is active from the URL, and the default navigate mode is
+    // pressed (no bmode param means navigate).
+    const chip = await screen.findByTestId("active-group-filter");
+    expect(chip).toHaveTextContent("Model:");
+    expect(chip).toHaveTextContent("gpt-4o");
+    expect(screen.getByTestId("breakdown-mode-navigate")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByTestId("breakdown-mode-drillin")).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+
+    // The list/summary query narrows to the active group...
+    await waitFor(() => {
+      expect(lastListParams().model).toBe("gpt-4o");
+    });
+    // ...but the breakdown query stays un-narrowed so every group card shows.
+    expect(lastBreakdownParams().model).toBeUndefined();
+
+    // A full page round-trip must not flip the breakdown into a narrowed query:
+    // leave for another page (the URL-sync effect re-applies group/gval but no
+    // bmode), then return to /traces on a clean path.
+    fireEvent.click(screen.getByTestId("nav-overview"));
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/overview");
+      const search = new URLSearchParams(window.location.search);
+      expect(search.get("group")).toBe("model");
+      expect(search.get("gval")).toBe("gpt-4o");
+      expect(search.get("bmode")).toBeNull();
+    });
+
+    fireEvent.click(screen.getByTestId("nav-traces"));
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/traces");
+      const search = new URLSearchParams(window.location.search);
+      expect(search.get("group")).toBe("model");
+      expect(search.get("bmode")).toBeNull();
+    });
+    expect(screen.getByTestId("breakdown-mode-navigate")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    // The behavioral proof after the round-trip: list still narrows, breakdown
+    // still does not.
+    await waitFor(() => {
+      expect(lastListParams().model).toBe("gpt-4o");
+    });
+    expect(lastBreakdownParams().model).toBeUndefined();
+
+    // Extra ticks prove the un-narrowed breakdown query has truly settled rather
+    // than narrowing a tick later.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(window.location.pathname).toBe("/traces");
+    expect(lastBreakdownParams().model).toBeUndefined();
+    expect(lastListParams().model).toBe("gpt-4o");
+  });
+
   it("re-applies the kind, search, and sort choices to a clean path after page-to-page navigation", async () => {
     // Mid-session on an all-time page so there is no date range to also
     // re-apply, isolating the kind/search/sort slice of the *same* URL-sync
