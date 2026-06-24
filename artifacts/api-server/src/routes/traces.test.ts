@@ -312,6 +312,103 @@ describe("traces routes", () => {
     assert.ok(Math.abs(body.byDepartment[0].costShare - 5 / 6) < 1e-9);
   });
 
+  test("GET /traces/breakdown groups departments case-insensitively under one label", async () => {
+    // Datadog lowercases tag values, so the same department can arrive as
+    // "Engineering", "engineering" and "ENGINEERING". They must collapse into a
+    // single bucket; the canonical (mixed-case) label wins over all-lowercase.
+    nextDatadog = datadogSpans([
+      {
+        span_id: "ci1",
+        name: "gpt call",
+        span_kind: "llm",
+        model_name: "gpt-4o",
+        ml_app: "support-bot",
+        duration: 1_000_000,
+        tags: ["department:engineering"],
+        metrics: { input_tokens: 1, output_tokens: 1, total_tokens: 2, estimated_total_cost: 1_000_000 },
+      },
+      {
+        span_id: "ci2",
+        name: "gpt call",
+        span_kind: "llm",
+        model_name: "gpt-4o",
+        ml_app: "support-bot",
+        duration: 1_000_000,
+        tags: ["dept:Engineering"],
+        metrics: { input_tokens: 1, output_tokens: 1, total_tokens: 2, estimated_total_cost: 2_000_000 },
+      },
+      {
+        span_id: "ci3",
+        name: "gpt call",
+        span_kind: "llm",
+        model_name: "gpt-4o",
+        ml_app: "support-bot",
+        duration: 1_000_000,
+        tags: ["team:ENGINEERING"],
+        metrics: { input_tokens: 1, output_tokens: 1, total_tokens: 2, estimated_total_cost: 3_000_000 },
+      },
+    ]);
+
+    const { body } = await getJson<TraceBreakdownResponse>(`${base}/traces/breakdown`);
+    // All three casings collapse into one row, summing their costs/spans, and the
+    // displayed label is the mixed-case variant rather than "engineering".
+    assert.deepEqual(
+      body.byDepartment.map((g) => [g.key, g.cost, g.spanCount]),
+      [["Engineering", 6, 3]],
+    );
+  });
+
+  test("GET /traces filters by department case-insensitively", async () => {
+    // The breakdown collapses casing variants into one canonical bucket, so a
+    // clicked department row must match every span regardless of tag casing.
+    const mixedCase = [
+      {
+        span_id: "d1",
+        name: "gpt call",
+        span_kind: "llm",
+        model_name: "gpt-4o",
+        ml_app: "support-bot",
+        duration: 1_000_000,
+        tags: ["department:engineering"],
+        metrics: { input_tokens: 1, output_tokens: 1, total_tokens: 2, estimated_total_cost: 1_000_000 },
+      },
+      {
+        span_id: "d2",
+        name: "claude call",
+        span_kind: "llm",
+        model_name: "claude-3",
+        ml_app: "support-bot",
+        duration: 1_000_000,
+        tags: ["dept:Engineering"],
+        metrics: { input_tokens: 1, output_tokens: 1, total_tokens: 2, estimated_total_cost: 1_000_000 },
+      },
+      {
+        span_id: "d3",
+        name: "sales call",
+        span_kind: "llm",
+        model_name: "gpt-4o",
+        ml_app: "billing-agent",
+        duration: 1_000_000,
+        tags: ["team:Sales"],
+        metrics: { input_tokens: 1, output_tokens: 1, total_tokens: 2, estimated_total_cost: 1_000_000 },
+      },
+    ];
+
+    nextDatadog = datadogSpans(mixedCase);
+    const list = (await getJson<TraceListResponse>(`${base}/traces?department=Engineering`)).body;
+    assert.deepEqual(spanIds(list).sort(), ["d1", "d2"]);
+
+    // A lowercased filter value matches the same spans.
+    nextDatadog = datadogSpans(mixedCase);
+    const lower = (await getJson<TraceListResponse>(`${base}/traces?department=engineering`)).body;
+    assert.deepEqual(spanIds(lower).sort(), ["d1", "d2"]);
+
+    // The summary endpoint shares the same group filter.
+    nextDatadog = datadogSpans(mixedCase);
+    const summary = (await getJson<TraceSummaryResponse>(`${base}/traces/summary?department=engineering`)).body;
+    assert.equal(summary.spanCount, 2);
+  });
+
   test("GET /traces/breakdown buckets spans without department attribution as unattributed", async () => {
     // No department/team tags; ml_app values don't match any seeded agent id, so
     // every span falls back to the (unattributed) bucket.

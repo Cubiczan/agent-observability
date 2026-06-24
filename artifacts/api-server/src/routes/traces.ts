@@ -127,14 +127,58 @@ async function loadDepartmentMap(): Promise<Map<string, string>> {
 
 const DEPT_TAG_RE = /^(?:department|dept|team):(.+)$/i;
 
+// Build a case-insensitive lookup from a lowercased department name to the
+// canonical label to display. Datadog lowercases tag values (so a span may carry
+// `department:finance`) while directory-derived names are proper-cased
+// ("Finance"); without this, the same department shows up as two rows. Directory
+// names are authoritative and always win; for departments that only ever appear
+// as span tags we keep the first casing seen but upgrade an all-lowercase
+// placeholder to a mixed-case variant ("finance" -> "Finance") for a nicer label.
+function buildCanonicalDepartments(
+  spans: NormalizedSpan[],
+  mlAppToDept: Map<string, string>,
+): Map<string, string> {
+  const canonical = new Map<string, string>();
+  const fromDirectory = new Set<string>();
+  for (const name of mlAppToDept.values()) {
+    const lower = name.toLowerCase();
+    canonical.set(lower, name);
+    fromDirectory.add(lower);
+  }
+  for (const span of spans) {
+    for (const tag of span.tags) {
+      const m = DEPT_TAG_RE.exec(tag);
+      if (!m) continue;
+      const value = m[1].trim();
+      if (value === "") continue;
+      const lower = value.toLowerCase();
+      if (fromDirectory.has(lower)) continue;
+      const existing = canonical.get(lower);
+      if (existing === undefined || (existing === lower && value !== lower)) {
+        canonical.set(lower, value);
+      }
+    }
+  }
+  return canonical;
+}
+
 // Derive the department/team for a span. Prefer an explicit department/dept/team
 // span tag, then fall back to mapping the span's ml_app to its owning agent's
-// department. Spans with neither are bucketed under "(unattributed)" so they
-// remain visible rather than silently dropped.
-function departmentOf(span: NormalizedSpan, mlAppToDept: Map<string, string>): string {
+// department. Tag-derived names are resolved through `canonical` so casing
+// variants collapse onto the canonical/directory label. Spans with neither a tag
+// nor a mapped ml_app are bucketed under "(unattributed)" so they remain visible
+// rather than silently dropped.
+function departmentOf(
+  span: NormalizedSpan,
+  mlAppToDept: Map<string, string>,
+  canonical: Map<string, string>,
+): string {
   for (const tag of span.tags) {
     const m = DEPT_TAG_RE.exec(tag);
-    if (m && m[1].trim() !== "") return m[1].trim();
+    if (m && m[1].trim() !== "") {
+      const value = m[1].trim();
+      return canonical.get(value.toLowerCase()) ?? value;
+    }
   }
   if (span.mlApp) {
     const dept = mlAppToDept.get(span.mlApp);
@@ -202,7 +246,13 @@ async function applyGroupFilter(
   }
   if (group.department) {
     const mlAppToDept = await loadDepartmentMap();
-    out = out.filter((s) => departmentOf(s, mlAppToDept) === group.department);
+    const canonical = buildCanonicalDepartments(out, mlAppToDept);
+    // Compare case-insensitively so a clicked card row matches regardless of the
+    // casing differences the breakdown already collapses into one bucket.
+    const wanted = group.department.toLowerCase();
+    out = out.filter(
+      (s) => departmentOf(s, mlAppToDept, canonical).toLowerCase() === wanted,
+    );
   }
   return out;
 }
@@ -240,9 +290,12 @@ router.get("/traces/breakdown", async (req, res) => {
   const { spans, noData } = await searchSpans({ from: bounds.from, to: bounds.to });
   const filtered = applyFilters(spans, kind, query);
   const mlAppToDept = await loadDepartmentMap();
+  const canonicalDepartments = buildCanonicalDepartments(filtered, mlAppToDept);
   const byModel = groupByCost(filtered, (s) => s.model ?? "(no model)");
   const byApp = groupByCost(filtered, (s) => s.mlApp ?? "(no app)");
-  const byDepartment = groupByCost(filtered, (s) => departmentOf(s, mlAppToDept));
+  const byDepartment = groupByCost(filtered, (s) =>
+    departmentOf(s, mlAppToDept, canonicalDepartments),
+  );
   res.json({ noData, byModel, byApp, byDepartment });
 });
 
