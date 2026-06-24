@@ -86,13 +86,22 @@ function PresetControls() {
 function NavControls() {
   const [, navigate] = useLocation();
   return (
-    <button
-      type="button"
-      data-testid="nav-overview"
-      onClick={() => navigate("/overview")}
-    >
-      Go to overview
-    </button>
+    <>
+      <button
+        type="button"
+        data-testid="nav-overview"
+        onClick={() => navigate("/overview")}
+      >
+        Go to overview
+      </button>
+      <button
+        type="button"
+        data-testid="nav-traces"
+        onClick={() => navigate("/traces")}
+      >
+        Back to traces
+      </button>
+    </>
   );
 }
 
@@ -769,6 +778,69 @@ describe("Traces + DateRangeProvider shared link", () => {
     expect(window.location.pathname).toBe("/overview");
     const settled = new URLSearchParams(window.location.search);
     expect(settled.get("bmode")).toBe("drillin");
+  });
+
+  it("keeps the breakdown view mode after navigating away and returning to traces", async () => {
+    // The full round-trip a user makes: open on a cold shared link carrying
+    // bmode=drillin, click away to another page (wouter drops the query string),
+    // then come back to /traces on a *clean* path with no bmode in the URL. The
+    // remembered breakdown mode must still be reflected in the toggle and the
+    // URL-sync effect must re-write bmode=drillin back onto the clean /traces
+    // path — mirroring the date range's "survives <Link> navigation" coverage.
+    window.localStorage.clear();
+    window.history.replaceState({}, "", "/traces?bmode=drillin");
+
+    render(
+      <DateRangeProvider>
+        <NavControls />
+        <Traces />
+      </DateRangeProvider>,
+    );
+
+    // The drill-in toggle starts pressed purely from the URL's bmode param.
+    const drillin = await screen.findByTestId("breakdown-mode-drillin");
+    expect(drillin).toHaveAttribute("aria-pressed", "true");
+
+    // 1) Leave for another page; wouter lands on a fresh path with no query, then
+    // the URL-sync effect re-writes bmode=drillin back onto it.
+    fireEvent.click(screen.getByTestId("nav-overview"));
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/overview");
+      expect(new URLSearchParams(window.location.search).get("bmode")).toBe(
+        "drillin",
+      );
+    });
+
+    // 2) Return to /traces on a clean path (a <Link> drops the query string).
+    fireEvent.click(screen.getByTestId("nav-traces"));
+
+    // The toggle is still pressed and the URL-sync effect re-applies the
+    // remembered bmode=drillin onto the clean /traces path.
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/traces");
+      expect(new URLSearchParams(window.location.search).get("bmode")).toBe(
+        "drillin",
+      );
+    });
+    expect(screen.getByTestId("breakdown-mode-drillin")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByTestId("breakdown-mode-navigate")).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+
+    // Extra ticks must prove the mode has truly settled on /traces rather than
+    // being dropped or ping-ponging back to the default a tick later.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(window.location.pathname).toBe("/traces");
+    const settled = new URLSearchParams(window.location.search);
+    expect(settled.get("bmode")).toBe("drillin");
+    expect(screen.getByTestId("breakdown-mode-drillin")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
   });
 
   it("re-applies the kind, search, and sort choices to a clean path after page-to-page navigation", async () => {
