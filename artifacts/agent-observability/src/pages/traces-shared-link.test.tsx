@@ -1546,8 +1546,10 @@ describe("Traces + DateRangeProvider shared link", () => {
     // The breakdown filter chip confirms the group filter is active.
     expect(screen.getByTestId("active-group-filter")).toHaveTextContent("gpt-4o");
 
-    // Trigger the page's real one-click Reset View control.
+    // Trigger the page's real one-click Reset View control. With several filters
+    // active it asks for confirmation first (task #106), so confirm the wipe.
     fireEvent.click(screen.getByTestId("button-reset-view"));
+    fireEvent.click(screen.getByTestId("button-confirm-reset"));
 
     // The list and breakdown queries drop kind, q, and the group together. (Sort
     // is applied client-side, so it never appears in the query params.)
@@ -2451,5 +2453,85 @@ describe("Traces + DateRangeProvider shared link", () => {
       "aria-pressed",
       "true",
     );
+  });
+
+  it("asks for confirmation before clearing a view with multiple active filters", async () => {
+    // Open on a shared link that already carries two distinct filters: a span
+    // kind and an active cost-breakdown group. That is two of the things Reset
+    // would wipe, so clicking Reset must guard against an accidental one-click
+    // wipe with a confirm.
+    window.localStorage.clear();
+    window.history.replaceState({}, "", "/traces?kind=llm&group=model&gval=gpt-4o");
+
+    render(
+      <DateRangeProvider>
+        <Traces />
+      </DateRangeProvider>,
+    );
+
+    // Both filters are live: the group chip is shown and the kind reaches the query.
+    await screen.findByTestId("active-group-filter");
+    await waitFor(() => {
+      const params = lastListParams();
+      expect(params.kind).toBe("llm");
+      expect(params.model).toBe("gpt-4o");
+    });
+
+    // Clicking Reset does NOT immediately wipe the view; it opens a confirm.
+    fireEvent.click(screen.getByTestId("button-reset-view"));
+    expect(screen.getByTestId("dialog-confirm-reset")).toBeInTheDocument();
+    // Nothing is cleared yet — the group chip is still on screen.
+    expect(screen.getByTestId("active-group-filter")).toBeInTheDocument();
+
+    // Cancelling keeps the carefully assembled view intact.
+    fireEvent.click(screen.getByTestId("button-cancel-reset"));
+    await waitFor(() => {
+      expect(screen.queryByTestId("dialog-confirm-reset")).not.toBeInTheDocument();
+    });
+    expect(screen.getByTestId("active-group-filter")).toBeInTheDocument();
+    expect(lastListParams().kind).toBe("llm");
+    expect(lastListParams().model).toBe("gpt-4o");
+
+    // Re-open and confirm: now the view is fully cleared.
+    fireEvent.click(screen.getByTestId("button-reset-view"));
+    fireEvent.click(screen.getByTestId("button-confirm-reset"));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("active-group-filter")).not.toBeInTheDocument();
+    });
+    await waitFor(() => {
+      const params = lastListParams();
+      expect(params.kind).toBeUndefined();
+      expect(params.model).toBeUndefined();
+    });
+    // The Reset control disappears once nothing is active.
+    expect(screen.queryByTestId("button-reset-view")).not.toBeInTheDocument();
+  });
+
+  it("resets a single trivial filter immediately without a confirm", async () => {
+    // Open on a shared link carrying exactly one filter — just a span kind.
+    // Clearing a single filter is low-risk, so Reset should fire instantly with
+    // no confirm dialog getting in the way.
+    window.localStorage.clear();
+    window.history.replaceState({}, "", "/traces?kind=llm");
+
+    render(
+      <DateRangeProvider>
+        <Traces />
+      </DateRangeProvider>,
+    );
+
+    await waitFor(() => {
+      expect(lastListParams().kind).toBe("llm");
+    });
+
+    fireEvent.click(screen.getByTestId("button-reset-view"));
+
+    // No confirm appears, and the filter is cleared straight away.
+    expect(screen.queryByTestId("dialog-confirm-reset")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(lastListParams().kind).toBeUndefined();
+    });
+    expect(screen.queryByTestId("button-reset-view")).not.toBeInTheDocument();
   });
 });

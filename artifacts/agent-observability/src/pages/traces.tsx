@@ -46,6 +46,16 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 const ALL_KINDS = "__all__";
 
@@ -351,6 +361,7 @@ export default function Traces() {
   const [sortDirection, setSortDirection] = useState<SortDirection>(initial.sortDirection);
   const [group, setGroup] = useState<GroupFilter | null>(initial.group);
   const [breakdownMode, setBreakdownMode] = useState<BreakdownMode>(initial.breakdownMode);
+  const [confirmResetOpen, setConfirmResetOpen] = useState(false);
 
   // Persist the current view so it survives <Link> navigation (which drops the
   // query string) and restores on the next visit even without a shared URL.
@@ -453,12 +464,18 @@ export default function Traces() {
       byApp.some((g) => g.cost > 0) ||
       byDepartment.some((g) => g.cost > 0));
 
-  const hasActiveView =
-    kind !== ALL_KINDS ||
-    search.trim() !== "" ||
-    sortColumn !== null ||
-    group !== null ||
-    breakdownMode !== "navigate";
+  // Count each distinct filter that Reset would wipe. Reset clears span kind,
+  // search text, sort, the active cost-breakdown group, and the drill-in mode,
+  // so a user can build up several at once. We use the count to decide whether a
+  // one-click Reset is low-risk (trivial) or worth a confirm.
+  const activeFilterCount =
+    (kind !== ALL_KINDS ? 1 : 0) +
+    (search.trim() !== "" ? 1 : 0) +
+    (sortColumn !== null ? 1 : 0) +
+    (group !== null ? 1 : 0) +
+    (breakdownMode !== "navigate" ? 1 : 0);
+
+  const hasActiveView = activeFilterCount > 0;
 
   function resetView() {
     setKind(ALL_KINDS);
@@ -473,6 +490,16 @@ export default function Traces() {
       } catch {
         // ignore storage failures (private mode, quota, etc.)
       }
+    }
+  }
+
+  // A single trivial filter resets with no friction; clearing two or more at
+  // once is the accidental-wipe case, so we ask for a quick confirm first.
+  function handleResetClick() {
+    if (activeFilterCount >= 2) {
+      setConfirmResetOpen(true);
+    } else {
+      resetView();
     }
   }
 
@@ -662,7 +689,7 @@ export default function Traces() {
           <Button
             type="button"
             variant="ghost"
-            onClick={resetView}
+            onClick={handleResetClick}
             className="w-full sm:w-auto text-muted-foreground"
             data-testid="button-reset-view"
           >
@@ -847,6 +874,27 @@ export default function Traces() {
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={confirmResetOpen} onOpenChange={setConfirmResetOpen}>
+        <AlertDialogContent data-testid="dialog-confirm-reset">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reset this view?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This clears all {activeFilterCount} active filters — span kind, search, sort,
+              and the cost-breakdown selection. This can&apos;t be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-reset">Keep view</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={resetView}
+              data-testid="button-confirm-reset"
+            >
+              Reset view
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
