@@ -843,6 +843,78 @@ describe("Traces + DateRangeProvider shared link", () => {
     );
   });
 
+  it("keeps the restored drill-in mode narrowing the breakdown query after navigating away and back to traces", async () => {
+    // The prior round-trip test proves bmode=drillin survives navigation in the
+    // toggle and the URL; this one proves the *behavioral* consequence — that the
+    // restored mode actually reaches the breakdown data query. Drill-in only
+    // narrows the breakdown when a group is active, so the cold link carries both
+    // bmode=drillin and an active group (group=model&gval=gpt-4o). The presence
+    // of that group dimension in lastBreakdownParams() is the observable proof
+    // that drillin reached useGetTraceCostBreakdown rather than just the UI; in
+    // "navigate" mode the breakdown query would omit the group entirely.
+    window.localStorage.clear();
+    window.history.replaceState(
+      {},
+      "",
+      "/traces?bmode=drillin&group=model&gval=gpt-4o",
+    );
+
+    render(
+      <DateRangeProvider>
+        <NavControls />
+        <Traces />
+      </DateRangeProvider>,
+    );
+
+    // The drill-in toggle starts pressed purely from the URL's bmode param.
+    const drillin = await screen.findByTestId("breakdown-mode-drillin");
+    expect(drillin).toHaveAttribute("aria-pressed", "true");
+
+    // On the original page, drill-in already narrows the breakdown query to the
+    // active group.
+    await waitFor(() => {
+      expect(lastBreakdownParams().model).toBe("gpt-4o");
+    });
+
+    // 1) Leave for another page; wouter lands on a fresh path with no query, then
+    // the URL-sync effect re-writes the breakdown filter and mode back onto it.
+    fireEvent.click(screen.getByTestId("nav-overview"));
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/overview");
+      const search = new URLSearchParams(window.location.search);
+      expect(search.get("bmode")).toBe("drillin");
+      expect(search.get("group")).toBe("model");
+      expect(search.get("gval")).toBe("gpt-4o");
+    });
+
+    // 2) Return to /traces on a clean path (a <Link> drops the query string).
+    fireEvent.click(screen.getByTestId("nav-traces"));
+
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/traces");
+      expect(new URLSearchParams(window.location.search).get("bmode")).toBe(
+        "drillin",
+      );
+    });
+    expect(screen.getByTestId("breakdown-mode-drillin")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    // The behavioral proof: the restored drill-in mode still narrows the
+    // breakdown query to the active group after the full round-trip, not just the
+    // toggle and URL.
+    await waitFor(() => {
+      expect(lastBreakdownParams().model).toBe("gpt-4o");
+    });
+
+    // Extra ticks must prove the narrowed query has truly settled rather than
+    // reverting to the un-narrowed "navigate"-mode query a tick later.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(window.location.pathname).toBe("/traces");
+    expect(lastBreakdownParams().model).toBe("gpt-4o");
+  });
+
   it("re-applies the kind, search, and sort choices to a clean path after page-to-page navigation", async () => {
     // Mid-session on an all-time page so there is no date range to also
     // re-apply, isolating the kind/search/sort slice of the *same* URL-sync
