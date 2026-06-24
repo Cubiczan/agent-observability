@@ -42,6 +42,13 @@ function PresetControls() {
       </button>
       <button
         type="button"
+        data-testid="apply-30d"
+        onClick={() => selectPreset("30d")}
+      >
+        30d
+      </button>
+      <button
+        type="button"
         data-testid="apply-all"
         onClick={() => selectPreset("all")}
       >
@@ -274,6 +281,78 @@ describe("Traces + DateRangeProvider shared link", () => {
     expect(settled.get("to")).toBeNull();
     expect(settled.get("group")).toBe("model");
     expect(settled.get("gval")).toBe("gpt-4o");
+  });
+
+  it("rewrites the date window but keeps the breakdown filter when switching between two concrete presets", async () => {
+    // Mid-session: open on a concrete 7d range so range/from/to are live in the
+    // URL and the list query, with nothing in localStorage to seed it.
+    window.localStorage.clear();
+    window.history.replaceState({}, "", "/traces?range=7d");
+
+    render(
+      <DateRangeProvider>
+        <PresetControls />
+        <Traces />
+      </DateRangeProvider>,
+    );
+
+    const today = new Date();
+    const from7d = format(subDays(today, 6), "yyyy-MM-dd");
+    const to7d = format(today, "yyyy-MM-dd");
+    const from30d = format(subDays(today, 29), "yyyy-MM-dd");
+    const to30d = format(today, "yyyy-MM-dd");
+
+    // The 7d window reaches the list query at mount.
+    await waitFor(() => {
+      const params = lastListParams();
+      expect(params.from).toBe(from7d);
+      expect(params.to).toBe(to7d);
+    });
+
+    // 1) Activate a breakdown filter by clicking a row.
+    fireEvent.click(screen.getByTestId("breakdown-row-gpt-4o"));
+    await waitFor(() => {
+      const search = new URLSearchParams(window.location.search);
+      expect(search.get("group")).toBe("model");
+      expect(search.get("gval")).toBe("gpt-4o");
+    });
+    // Both the 7d range and the group are live together before the switch.
+    await waitFor(() => {
+      const params = lastListParams();
+      expect(params.model).toBe("gpt-4o");
+      expect(params.from).toBe(from7d);
+      expect(params.to).toBe(to7d);
+    });
+
+    // 2) Switch directly to the 30d preset via the provider surface.
+    fireEvent.click(screen.getByTestId("apply-30d"));
+
+    // The list query updates from/to to the 30d window but keeps the group.
+    await waitFor(() => {
+      const params = lastListParams();
+      expect(params.model).toBe("gpt-4o");
+      expect(params.from).toBe(from30d);
+      expect(params.to).toBe(to30d);
+    });
+
+    // The URL rewrites range/from/to to the 30d window while leaving group/gval.
+    await waitFor(() => {
+      const search = new URLSearchParams(window.location.search);
+      expect(search.get("range")).toBe("30d");
+      expect(search.get("group")).toBe("model");
+      expect(search.get("gval")).toBe("gpt-4o");
+    });
+
+    // Extra ticks must not revert the range or drop the group (no ping-pong).
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const settled = new URLSearchParams(window.location.search);
+    expect(settled.get("range")).toBe("30d");
+    expect(settled.get("group")).toBe("model");
+    expect(settled.get("gval")).toBe("gpt-4o");
+    const settledParams = lastListParams();
+    expect(settledParams.model).toBe("gpt-4o");
+    expect(settledParams.from).toBe(from30d);
+    expect(settledParams.to).toBe(to30d);
   });
 
   it("persists the restored range and group so they outlive the shared link", async () => {
