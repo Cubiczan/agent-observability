@@ -1,0 +1,110 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index e727571..849813c 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -32,6 +32,7 @@ dev = [
+ llm = [
+     "anthropic>=0.34",
+     "openai>=1.40",
++    "ddtrace>=2.8",
+ ]
+ vector = [
+     "astrapy>=1.5",
+diff --git a/src/strata/cli.py b/src/strata/cli.py
+index 120128b..d6bdcf7 100644
+--- a/src/strata/cli.py
++++ b/src/strata/cli.py
+@@ -21,6 +21,11 @@ from strata.orchestrator.chains import all_chains
+ from strata.orchestrator.director import Director
+ from strata.schema import CharacteristicScore
+ 
++# --- Datadog LLM Observability (no-op unless DD_LLMOBS_ENABLED) ---
++from strata.observability import init_observability
++
++init_observability("strata")
++
+ app = typer.Typer(no_args_is_help=True, add_completion=False)
+ console = Console()
+ 
+diff --git a/src/strata/observability.py b/src/strata/observability.py
+new file mode 100644
+index 0000000..5e4e555
+--- /dev/null
++++ b/src/strata/observability.py
+@@ -0,0 +1,60 @@
++"""Datadog LLM Observability bootstrap.
++
++Enables Datadog LLM Observability in *agentless* mode so that every OpenAI /
++Anthropic / CrewAI / openai-agents call this app makes is captured as a span and
++shipped to Datadog -- no Datadog Agent process required. It is a no-op unless
++``DD_LLMOBS_ENABLED`` is truthy, so local development, tests and CI are
++unaffected, and it degrades gracefully (a warning, not a crash) if ``ddtrace``
++is not installed.
++
++Enable it by setting these environment variables in your deployment:
++
++    DD_LLMOBS_ENABLED=1
++    DD_API_KEY=<your Datadog API key>
++    DD_SITE=us5.datadoghq.com          # must match your Datadog org's site
++    DD_LLMOBS_ML_APP=<app name>        # optional; overrides the per-app default
++
++Then run the app normally. Requires ``ddtrace`` (already added to this project's
++dependencies). The ml_app name is what the AgentOps dashboard groups traces by
++in its "By App" breakdown.
++"""
++from __future__ import annotations
++
++import logging
++import os
++
++_log = logging.getLogger("observability")
++_initialized = False
++
++
++def _truthy(value: "str | None") -> bool:
++    return (value or "").strip().lower() in ("1", "true", "yes", "on")
++
++
++def init_observability(default_ml_app: str = "agent-app") -> bool:
++    """Enable Datadog LLM Observability once, if ``DD_LLMOBS_ENABLED`` is set.
++
++    ``default_ml_app`` is used when ``DD_LLMOBS_ML_APP`` is not set in the
++    environment. Returns ``True`` if observability was activated, else ``False``.
++    """
++    global _initialized
++    if _initialized:
++        return True
++    if not _truthy(os.getenv("DD_LLMOBS_ENABLED")):
++        return False
++    try:
++        from ddtrace.llmobs import LLMObs
++    except ImportError:
++        _log.warning(
++            "ddtrace is not installed -- LLM Observability disabled. "
++            "Install it with: pip install 'ddtrace>=2.8'"
++        )
++        return False
++
++    LLMObs.enable(
++        ml_app=os.getenv("DD_LLMOBS_ML_APP") or default_ml_app,
++        agentless_enabled=True,
++    )
++    _initialized = True
++    _log.info("Datadog LLM Observability enabled (agentless).")
++    return True
+diff --git a/streamlit_app.py b/streamlit_app.py
+index 5398964..5c1315b 100644
+--- a/streamlit_app.py
++++ b/streamlit_app.py
+@@ -33,6 +33,11 @@ from strata.orchestrator import all_chains
+ from strata.orchestrator.director import Director
+ from strata.schema import CharacteristicScore
+ 
++# --- Datadog LLM Observability (no-op unless DD_LLMOBS_ENABLED) ---
++from strata.observability import init_observability
++
++init_observability("strata")
++
+ PROJECT_ROOT = Path(__file__).resolve().parent
+ SAMPLES = PROJECT_ROOT / "samples"
+ 

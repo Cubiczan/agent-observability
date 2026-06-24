@@ -1,0 +1,110 @@
+diff --git a/chp_superserve.py b/chp_superserve.py
+index 43adfdb..91f24b2 100755
+--- a/chp_superserve.py
++++ b/chp_superserve.py
+@@ -14,6 +14,11 @@ runs it in an isolated Firecracker microVM and checks for:
+ Usage:
+     from cubiczan.superserve import CHPGate, CHPGateResult
+ 
++# --- Datadog LLM Observability (no-op unless DD_LLMOBS_ENABLED) ---
++from cme.observability import init_observability
++
++init_observability("consensus-hardening-protocol")
++
+     gate = CHPGate(strict=True)
+     result = gate.evaluate_proposal(code, proposal_id="prop-001")
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index 8da4787..b6e18b8 100755
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -21,6 +21,7 @@ classifiers = [
+ ]
+ dependencies = [
+   "cubiczan-resilience @ git+https://github.com/icohangar-ops/cubiczan-resilience.git#subdirectory=python",
++  "ddtrace>=2.8",
+ ]
+ 
+ [project.optional-dependencies]
+diff --git a/src/cme/cli.py b/src/cme/cli.py
+index 15e1959..9c29771 100755
+--- a/src/cme/cli.py
++++ b/src/cme/cli.py
+@@ -8,6 +8,11 @@ from datetime import datetime
+ from pathlib import Path
+ from typing import List
+ 
++# --- Datadog LLM Observability (no-op unless DD_LLMOBS_ENABLED) ---
++from cme.observability import init_observability
++
++init_observability("consensus-hardening-protocol")
++
+ from cme.bridge import EntryPoint
+ from cme.cfo_os import (
+     BoardBrief,
+diff --git a/src/cme/observability.py b/src/cme/observability.py
+new file mode 100644
+index 0000000..5e4e555
+--- /dev/null
++++ b/src/cme/observability.py
+@@ -0,0 +1,60 @@
++"""Datadog LLM Observability bootstrap.
++
++Enables Datadog LLM Observability in *agentless* mode so that every OpenAI /
++Anthropic / CrewAI / openai-agents call this app makes is captured as a span and
++shipped to Datadog -- no Datadog Agent process required. It is a no-op unless
++``DD_LLMOBS_ENABLED`` is truthy, so local development, tests and CI are
++unaffected, and it degrades gracefully (a warning, not a crash) if ``ddtrace``
++is not installed.
++
++Enable it by setting these environment variables in your deployment:
++
++    DD_LLMOBS_ENABLED=1
++    DD_API_KEY=<your Datadog API key>
++    DD_SITE=us5.datadoghq.com          # must match your Datadog org's site
++    DD_LLMOBS_ML_APP=<app name>        # optional; overrides the per-app default
++
++Then run the app normally. Requires ``ddtrace`` (already added to this project's
++dependencies). The ml_app name is what the AgentOps dashboard groups traces by
++in its "By App" breakdown.
++"""
++from __future__ import annotations
++
++import logging
++import os
++
++_log = logging.getLogger("observability")
++_initialized = False
++
++
++def _truthy(value: "str | None") -> bool:
++    return (value or "").strip().lower() in ("1", "true", "yes", "on")
++
++
++def init_observability(default_ml_app: str = "agent-app") -> bool:
++    """Enable Datadog LLM Observability once, if ``DD_LLMOBS_ENABLED`` is set.
++
++    ``default_ml_app`` is used when ``DD_LLMOBS_ML_APP`` is not set in the
++    environment. Returns ``True`` if observability was activated, else ``False``.
++    """
++    global _initialized
++    if _initialized:
++        return True
++    if not _truthy(os.getenv("DD_LLMOBS_ENABLED")):
++        return False
++    try:
++        from ddtrace.llmobs import LLMObs
++    except ImportError:
++        _log.warning(
++            "ddtrace is not installed -- LLM Observability disabled. "
++            "Install it with: pip install 'ddtrace>=2.8'"
++        )
++        return False
++
++    LLMObs.enable(
++        ml_app=os.getenv("DD_LLMOBS_ML_APP") or default_ml_app,
++        agentless_enabled=True,
++    )
++    _initialized = True
++    _log.info("Datadog LLM Observability enabled (agentless).")
++    return True

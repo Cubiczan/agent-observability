@@ -52,6 +52,16 @@ Headers: **`DD-API-KEY` only** (no app key). Success = **HTTP 202**.
 - Datadog can't delete ingested spans; mistakes (e.g. a wrong/lowercase tag
   during testing) linger until they age out of the query window (~30d).
 
+## Query syntax & time-window gotchas (empirical)
+- In the `filter.query` string, **tags are matched WITHOUT an `@` prefix**
+  (`source:instrumentation-preview`, negate `-source:instrumentation-preview`).
+  The `@`-prefix is for span *attributes* (e.g. `@ml_app:strata` — ml_app also
+  works as a bare facet `ml_app:strata`). Querying a tag as `@source:...` simply
+  returns 0/everything, silently — not an error.
+- Seed scripts that stagger runs into the past (e.g. `runOffset = N hours ago`)
+  will appear "missing" if your verification `from/to` window is narrower than
+  the oldest run. Widen the window (24h) before concluding ingestion failed.
+
 **Why this matters:** the seed script (`scripts/src/seed-datadog-traces.ts`,
 `pnpm --filter @workspace/scripts run seed:traces`) is the ONLY place AgentOps
 writes to Datadog, and only sends clearly-labeled samples (tag sample:true,

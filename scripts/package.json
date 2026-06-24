@@ -8,6 +8,7 @@
     "ingest": "tsx ./src/ingest.ts",
     "seed": "tsx ./src/seed.ts",
     "seed:traces": "tsx ./src/seed-datadog-traces.ts",
+    "seed:repo-traces": "tsx ./src/seed-repo-traces.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
