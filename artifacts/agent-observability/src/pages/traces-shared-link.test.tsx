@@ -770,4 +770,139 @@ describe("Traces + DateRangeProvider shared link", () => {
     expect(settled.get("group")).toBe("model");
     expect(settled.get("gval")).toBe("gpt-4o");
   });
+
+  it("lets a shared link's range win over a previously remembered range in storage", async () => {
+    // A returning user: localStorage already remembers a 30d range from a prior
+    // visit, then they open a friend's shared link carrying a *different* range
+    // (7d) plus a breakdown filter. initialState() prefers parseSearch over
+    // parseStorage, so the URL's 7d must win the cold-load race — the stale
+    // stored 30d must not override it.
+    const today = new Date();
+    const from30d = format(subDays(today, 29), "yyyy-MM-dd");
+    const to30d = format(today, "yyyy-MM-dd");
+    window.localStorage.setItem(
+      DATE_STORAGE_KEY,
+      JSON.stringify({ preset: "30d", from: from30d, to: to30d }),
+    );
+    window.history.replaceState({}, "", "/traces?range=7d&group=model&gval=gpt-4o");
+
+    render(
+      <DateRangeProvider>
+        <Traces />
+      </DateRangeProvider>,
+    );
+
+    // The breakdown filter is active purely from the URL.
+    const chip = await screen.findByTestId("active-group-filter");
+    expect(chip).toHaveTextContent("Model:");
+    expect(chip).toHaveTextContent("gpt-4o");
+
+    // The URL's 7d window — not the remembered 30d — reaches the list query.
+    const expectedFrom = format(subDays(today, 6), "yyyy-MM-dd");
+    const expectedTo = format(today, "yyyy-MM-dd");
+    await waitFor(() => {
+      const params = lastListParams();
+      expect(params.model).toBe("gpt-4o");
+      expect(params.from).toBe(expectedFrom);
+      expect(params.to).toBe(expectedTo);
+      // The stale 30d window must not have leaked through.
+      expect(params.from).not.toBe(from30d);
+    });
+
+    // The URL keeps the shared link's range/group/gval intact.
+    await waitFor(() => {
+      const search = new URLSearchParams(window.location.search);
+      expect(search.get("range")).toBe("7d");
+      expect(search.get("group")).toBe("model");
+      expect(search.get("gval")).toBe("gpt-4o");
+    });
+
+    // Storage is rewritten to match the shared link (7d), not the other way around.
+    await waitFor(() => {
+      const dateStored = JSON.parse(
+        window.localStorage.getItem(DATE_STORAGE_KEY) ?? "{}",
+      );
+      expect(dateStored.preset).toBe("7d");
+    });
+
+    // Extra ticks must prove nothing reverts to the remembered 30d range.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const settled = new URLSearchParams(window.location.search);
+    expect(settled.get("range")).toBe("7d");
+    expect(settled.get("group")).toBe("model");
+    expect(settled.get("gval")).toBe("gpt-4o");
+    const settledParams = lastListParams();
+    expect(settledParams.from).toBe(expectedFrom);
+    expect(settledParams.to).toBe(expectedTo);
+    expect(
+      JSON.parse(window.localStorage.getItem(DATE_STORAGE_KEY) ?? "{}").preset,
+    ).toBe("7d");
+  });
+
+  it("lets a shared month-preset link win over a remembered custom range in storage", async () => {
+    // A returning user whose remembered range is a concrete custom from/to from
+    // a prior visit, who then opens a shared link carrying the derived "month"
+    // preset. The URL must still win: month re-derives startOfMonth..today and
+    // the stale custom window must not survive.
+    window.localStorage.setItem(
+      DATE_STORAGE_KEY,
+      JSON.stringify({ preset: "custom", from: CUSTOM_FROM, to: CUSTOM_TO }),
+    );
+    window.history.replaceState({}, "", "/traces?range=month&group=model&gval=gpt-4o");
+
+    render(
+      <DateRangeProvider>
+        <Traces />
+      </DateRangeProvider>,
+    );
+
+    const chip = await screen.findByTestId("active-group-filter");
+    expect(chip).toHaveTextContent("Model:");
+    expect(chip).toHaveTextContent("gpt-4o");
+
+    // range=month re-derives a concrete startOfMonth..today window that reaches
+    // the list query — the remembered custom window must not leak through.
+    const today = new Date();
+    const fromMonth = format(startOfMonth(today), "yyyy-MM-dd");
+    const toMonth = format(today, "yyyy-MM-dd");
+    await waitFor(() => {
+      const params = lastListParams();
+      expect(params.model).toBe("gpt-4o");
+      expect(params.from).toBe(fromMonth);
+      expect(params.to).toBe(toMonth);
+      expect(params.from).not.toBe(CUSTOM_FROM);
+      expect(params.to).not.toBe(CUSTOM_TO);
+    });
+
+    // The URL keeps range=month plus the breakdown's group/gval.
+    await waitFor(() => {
+      const search = new URLSearchParams(window.location.search);
+      expect(search.get("range")).toBe("month");
+      expect(search.get("group")).toBe("model");
+      expect(search.get("gval")).toBe("gpt-4o");
+    });
+
+    // Storage is rewritten to the month preset, not left as the stale custom range.
+    await waitFor(() => {
+      const dateStored = JSON.parse(
+        window.localStorage.getItem(DATE_STORAGE_KEY) ?? "{}",
+      );
+      expect(dateStored.preset).toBe("month");
+    });
+
+    // Extra ticks must prove nothing reverts to the remembered custom range.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const settled = new URLSearchParams(window.location.search);
+    expect(settled.get("range")).toBe("month");
+    expect(settled.get("from")).toBeNull();
+    expect(settled.get("to")).toBeNull();
+    expect(settled.get("group")).toBe("model");
+    expect(settled.get("gval")).toBe("gpt-4o");
+    const settledParams = lastListParams();
+    expect(settledParams.from).toBe(fromMonth);
+    expect(settledParams.to).toBe(toMonth);
+    expect(
+      JSON.parse(window.localStorage.getItem(DATE_STORAGE_KEY) ?? "{}").preset,
+    ).toBe("month");
+  });
 });
