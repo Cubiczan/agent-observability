@@ -1517,4 +1517,91 @@ describe("Traces + DateRangeProvider shared link", () => {
     const settledBreakdown = lastBreakdownParams();
     expect(settledBreakdown.model).toBe("gpt-4o");
   });
+
+  it("restores the drill-in breakdown mode from storage on a fresh visit with no link", async () => {
+    // A returning visitor with no shared link: the URL carries no bmode param,
+    // but localStorage remembers "drillin" from a prior visit. initialView()
+    // finds nothing in the URL and falls back to the stored breakdownMode, so
+    // the "Drill in" toggle starts active — the storage-only complement to the
+    // cold-link restore above.
+    window.localStorage.setItem(
+      VIEW_STORAGE_KEY,
+      JSON.stringify({ breakdownMode: "drillin" }),
+    );
+    // No bmode query param at all — a pure storage-only restore.
+    window.history.replaceState({}, "", "/traces");
+
+    render(
+      <DateRangeProvider>
+        <Traces />
+      </DateRangeProvider>,
+    );
+
+    // The "Drill in" toggle is active purely from storage.
+    const drillin = await screen.findByTestId("breakdown-mode-drillin");
+    expect(drillin).toHaveAttribute("aria-pressed", "true");
+    // ...and "Navigate" is correspondingly inactive.
+    expect(screen.getByTestId("breakdown-mode-navigate")).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+
+    // The URL-sync effect writes bmode=drillin back into the URL so the
+    // remembered mode is shareable again, even though it arrived from storage.
+    await waitFor(() => {
+      const search = new URLSearchParams(window.location.search);
+      expect(search.get("bmode")).toBe("drillin");
+    });
+
+    // Extra ticks must prove the restored mode has settled rather than
+    // ping-ponging back to the default "navigate" (which writes no bmode).
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const settled = new URLSearchParams(window.location.search);
+    expect(settled.get("bmode")).toBe("drillin");
+    expect(screen.getByTestId("breakdown-mode-drillin")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  it("lets an explicit bmode in the URL win over a stale stored breakdown mode on a cold load", async () => {
+    // A cold-load race: localStorage remembers "navigate" from a prior visit,
+    // but the shared link explicitly carries bmode=drillin. initialView() reads
+    // the URL first (url.get("bmode") ?? stored.breakdownMode), so the link
+    // wins over the stale storage value — mirroring the range storage-vs-link
+    // precedence and proving a shared link is authoritative.
+    window.localStorage.setItem(
+      VIEW_STORAGE_KEY,
+      JSON.stringify({ breakdownMode: "navigate" }),
+    );
+    window.history.replaceState({}, "", "/traces?bmode=drillin");
+
+    render(
+      <DateRangeProvider>
+        <Traces />
+      </DateRangeProvider>,
+    );
+
+    // The link's "drillin" wins over the stored "navigate".
+    const drillin = await screen.findByTestId("breakdown-mode-drillin");
+    expect(drillin).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("breakdown-mode-navigate")).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+
+    // The URL keeps bmode=drillin; the stale stored value never overrides it.
+    await waitFor(() => {
+      const search = new URLSearchParams(window.location.search);
+      expect(search.get("bmode")).toBe("drillin");
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const settled = new URLSearchParams(window.location.search);
+    expect(settled.get("bmode")).toBe("drillin");
+    expect(screen.getByTestId("breakdown-mode-drillin")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
 });
