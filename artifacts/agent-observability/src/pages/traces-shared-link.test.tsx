@@ -199,6 +199,126 @@ describe("Traces + DateRangeProvider shared link", () => {
     expect(settled.get("gval")).toBe("gpt-4o");
   });
 
+  it("restores the month preset and the breakdown filter from a cold shared URL without clobbering each other", async () => {
+    // A fresh tab opening a shared link whose range is the *derived* "month"
+    // preset (range=month, no concrete from/to in the URL) alongside the
+    // breakdown params, with nothing in localStorage to fall back on. The month
+    // preset takes a different parseSearch path than 7d — it re-derives from/to
+    // from startOfMonth..today rather than reading them off the URL — so this
+    // exercises that branch on the cold-load race specifically.
+    window.localStorage.clear();
+    window.history.replaceState({}, "", "/traces?range=month&group=model&gval=gpt-4o");
+
+    render(
+      <DateRangeProvider>
+        <Traces />
+      </DateRangeProvider>,
+    );
+
+    // The breakdown filter is active purely from the URL.
+    const chip = await screen.findByTestId("active-group-filter");
+    expect(chip).toHaveTextContent("Model:");
+    expect(chip).toHaveTextContent("gpt-4o");
+    expect(screen.getByTestId("breakdown-row-gpt-4o")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    // range=month re-derives a concrete startOfMonth..today window that reaches
+    // the list query alongside the group filter.
+    const today = new Date();
+    const fromMonth = format(startOfMonth(today), "yyyy-MM-dd");
+    const toMonth = format(today, "yyyy-MM-dd");
+    await waitFor(() => {
+      const params = lastListParams();
+      expect(params.model).toBe("gpt-4o");
+      expect(params.from).toBe(fromMonth);
+      expect(params.to).toBe(toMonth);
+    });
+
+    // After both effects settle, the URL keeps range=month plus the breakdown's
+    // group/gval. The month preset is derived, so its concrete from/to live in
+    // the query, not the URL.
+    await waitFor(() => {
+      const search = new URLSearchParams(window.location.search);
+      expect(search.get("range")).toBe("month");
+      expect(search.get("group")).toBe("model");
+      expect(search.get("gval")).toBe("gpt-4o");
+    });
+
+    // Extra ticks must prove the URL has settled rather than ping-ponging.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const settled = new URLSearchParams(window.location.search);
+    expect(settled.get("range")).toBe("month");
+    expect(settled.get("group")).toBe("model");
+    expect(settled.get("gval")).toBe("gpt-4o");
+    const settledParams = lastListParams();
+    expect(settledParams.model).toBe("gpt-4o");
+    expect(settledParams.from).toBe(fromMonth);
+    expect(settledParams.to).toBe(toMonth);
+  });
+
+  it("restores a custom from/to range and the breakdown filter from a cold shared URL without clobbering each other", async () => {
+    // A fresh tab opening a shared link whose range is "custom" with concrete
+    // from/to baked into the URL, alongside the breakdown params, with nothing
+    // in localStorage to fall back on. The custom branch of parseSearch reads
+    // the concrete from/to straight off the URL (unlike month, which derives
+    // them), so this covers that path on the cold-load race specifically.
+    window.localStorage.clear();
+    window.history.replaceState(
+      {},
+      "",
+      `/traces?range=custom&from=${CUSTOM_FROM}&to=${CUSTOM_TO}&group=app&gval=support-bot`,
+    );
+
+    render(
+      <DateRangeProvider>
+        <Traces />
+      </DateRangeProvider>,
+    );
+
+    // The breakdown filter is active purely from the URL.
+    const chip = await screen.findByTestId("active-group-filter");
+    expect(chip).toHaveTextContent("App:");
+    expect(chip).toHaveTextContent("support-bot");
+    expect(screen.getByTestId("breakdown-row-support-bot")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+
+    // The concrete custom from/to reach the list query alongside the group filter.
+    await waitFor(() => {
+      const params = lastListParams();
+      expect(params.app).toBe("support-bot");
+      expect(params.from).toBe(CUSTOM_FROM);
+      expect(params.to).toBe(CUSTOM_TO);
+    });
+
+    // After both effects settle, the URL keeps range=custom plus its concrete
+    // from/to and the breakdown's group/gval — none clobbered.
+    await waitFor(() => {
+      const search = new URLSearchParams(window.location.search);
+      expect(search.get("range")).toBe("custom");
+      expect(search.get("from")).toBe(CUSTOM_FROM);
+      expect(search.get("to")).toBe(CUSTOM_TO);
+      expect(search.get("group")).toBe("app");
+      expect(search.get("gval")).toBe("support-bot");
+    });
+
+    // Extra ticks must prove the URL has settled rather than ping-ponging.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const settled = new URLSearchParams(window.location.search);
+    expect(settled.get("range")).toBe("custom");
+    expect(settled.get("from")).toBe(CUSTOM_FROM);
+    expect(settled.get("to")).toBe(CUSTOM_TO);
+    expect(settled.get("group")).toBe("app");
+    expect(settled.get("gval")).toBe("support-bot");
+    const settledParams = lastListParams();
+    expect(settledParams.app).toBe("support-bot");
+    expect(settledParams.from).toBe(CUSTOM_FROM);
+    expect(settledParams.to).toBe(CUSTOM_TO);
+  });
+
   it("does not write date-range params for an all-time range while keeping the breakdown filter on a shared link", async () => {
     // No range param means "all time": the date-range effect must leave the
     // query string's group/gval untouched and must not inject range/from/to.
