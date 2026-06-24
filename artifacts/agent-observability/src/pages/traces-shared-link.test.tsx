@@ -715,6 +715,109 @@ describe("Traces + DateRangeProvider shared link", () => {
     expect(lastListParams().model).toBe("gpt-4o");
   });
 
+  it("re-applies the kind, search, and sort choices to a clean path after page-to-page navigation", async () => {
+    // Mid-session on an all-time page so there is no date range to also
+    // re-apply, isolating the kind/search/sort slice of the *same* URL-sync
+    // effect that #85/#87 proved for the date range and breakdown filter. The
+    // kind starts in the URL (as a shared link would carry it) while the search
+    // and sort are driven through the page's real controls.
+    window.localStorage.clear();
+    window.history.replaceState({}, "", "/traces?kind=llm");
+
+    // The sort controls only render once the table has at least one span, so
+    // seed a single row for this test.
+    useListTraces.mockReturnValue(
+      tracesResult({
+        data: {
+          noData: false,
+          spans: [
+            {
+              spanId: "span-1",
+              traceId: "trace-1",
+              parentId: null,
+              name: "chat.completion",
+              kind: "llm",
+              model: "gpt-4o",
+              provider: "openai",
+              inputTokens: 10,
+              outputTokens: 20,
+              totalTokens: 30,
+              estimatedCostUsd: 0.01,
+              latencyMs: 120,
+              status: "ok",
+              timestamp: "2026-06-01T00:00:00.000Z",
+              mlApp: "support-bot",
+              tags: [],
+            },
+          ],
+        },
+      }),
+    );
+
+    render(
+      <DateRangeProvider>
+        <NavControls />
+        <Traces />
+      </DateRangeProvider>,
+    );
+
+    // 1) Type a search term and pick a sort column via the real controls.
+    fireEvent.change(screen.getByTestId("input-search-traces"), {
+      target: { value: "gpt" },
+    });
+    fireEvent.click(screen.getByTestId("sort-cost"));
+
+    // All three choices land in the live URL on the original page.
+    await waitFor(() => {
+      const search = new URLSearchParams(window.location.search);
+      expect(search.get("kind")).toBe("llm");
+      expect(search.get("q")).toBe("gpt");
+      expect(search.get("sort")).toBe("cost");
+      expect(search.get("dir")).toBe("desc");
+    });
+    // And they reach the list query on the original page.
+    await waitFor(() => {
+      const params = lastListParams();
+      expect(params.kind).toBe("llm");
+      expect(params.q).toBe("gpt");
+    });
+
+    // 2) Move to another page via wouter navigation, which lands on a fresh path
+    // carrying *no* query string (exactly what a <Link> does).
+    fireEvent.click(screen.getByTestId("nav-overview"));
+
+    // The destination path is reached and the Traces URL-sync effect re-writes
+    // the kind, search, and sort back onto it.
+    await waitFor(() => {
+      expect(window.location.pathname).toBe("/overview");
+      const search = new URLSearchParams(window.location.search);
+      expect(search.get("kind")).toBe("llm");
+      expect(search.get("q")).toBe("gpt");
+      expect(search.get("sort")).toBe("cost");
+      expect(search.get("dir")).toBe("desc");
+    });
+
+    // The re-applied kind and search still reach the data query after the move.
+    await waitFor(() => {
+      const params = lastListParams();
+      expect(params.kind).toBe("llm");
+      expect(params.q).toBe("gpt");
+    });
+
+    // Extra ticks must prove the choices have truly settled on the new path
+    // rather than being dropped a tick later (the regression #85 guards against).
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(window.location.pathname).toBe("/overview");
+    const settledView = new URLSearchParams(window.location.search);
+    expect(settledView.get("kind")).toBe("llm");
+    expect(settledView.get("q")).toBe("gpt");
+    expect(settledView.get("sort")).toBe("cost");
+    expect(settledView.get("dir")).toBe("desc");
+    const settledViewParams = lastListParams();
+    expect(settledViewParams.kind).toBe("llm");
+    expect(settledViewParams.q).toBe("gpt");
+  });
+
   it("persists the restored range and group so they outlive the shared link", async () => {
     window.localStorage.clear();
     window.history.replaceState({}, "", "/traces?range=30d&group=department&gval=Engineering");
