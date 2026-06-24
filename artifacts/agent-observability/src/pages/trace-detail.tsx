@@ -16,6 +16,12 @@ import {
 } from "@/components/ui/dialog";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Breadcrumb,
   BreadcrumbItem,
   BreadcrumbLink,
@@ -417,6 +423,29 @@ export default function TraceDetail() {
     return (clamped / totalMs) * 100;
   };
 
+  // Inverse of project(): given a 0..100 position, return the millisecond offset
+  // that lands there. Used to label evenly-spaced ruler ticks so the ms values
+  // shift correctly when Log scale compresses the axis.
+  const projectInverse = (pct: number): number => {
+    if (totalMs <= 0) return 0;
+    const frac = Math.min(Math.max(pct, 0), 100) / 100;
+    if (scale === "log") {
+      return Math.expm1(frac * Math.log1p(totalMs));
+    }
+    return frac * totalMs;
+  };
+
+  // Evenly-spaced ruler ticks (0%, 25%, ... 100%). Positions stay fixed; the
+  // labels are derived through projectInverse so they adapt to Linear vs Log.
+  const rulerTicks = useMemo(
+    () =>
+      [0, 25, 50, 75, 100].map((pct) => ({
+        pct,
+        ms: projectInverse(pct),
+      })),
+    [scale, totalMs],
+  );
+
   function toggle(spanId: string) {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -529,6 +558,36 @@ export default function TraceDetail() {
               </div>
             </CardHeader>
             <CardContent className="p-0">
+              {totalMs > 0 && (
+                <div className="hidden sm:flex items-center gap-3 px-4 py-2 border-b bg-muted/20 text-[10px] font-mono text-muted-foreground select-none">
+                  <div className="size-4 shrink-0" aria-hidden />
+                  <div className="w-64 shrink-0" aria-hidden />
+                  <div className="flex-1 relative h-4">
+                    {rulerTicks.map((tick) => (
+                      <div
+                        key={tick.pct}
+                        className="absolute top-0 bottom-0 flex flex-col items-center"
+                        style={{
+                          left: `${tick.pct}%`,
+                          transform:
+                            tick.pct === 0
+                              ? "translateX(0)"
+                              : tick.pct === 100
+                                ? "translateX(-100%)"
+                                : "translateX(-50%)",
+                        }}
+                      >
+                        <span className="whitespace-nowrap leading-none">
+                          {tick.pct === 0 ? "0" : `+${formatLatency(tick.ms)}`}
+                        </span>
+                        <span className="mt-0.5 h-1.5 w-px bg-border" aria-hidden />
+                      </div>
+                    ))}
+                  </div>
+                  <div className="w-[140px] md:w-[230px] shrink-0" aria-hidden />
+                </div>
+              )}
+              <TooltipProvider delayDuration={150}>
               <div className="divide-y">
                 {spans.map((span) => {
                   const depth = depths.get(span.spanId) ?? 0;
@@ -556,36 +615,56 @@ export default function TraceDetail() {
                           className={`size-4 text-muted-foreground shrink-0 transition-transform ${isOpen ? "rotate-90" : ""}`}
                         />
                         <div
-                          className="flex items-center gap-2 shrink-0"
+                          className="flex items-center gap-2 shrink-0 w-64 min-w-0"
                           style={{ paddingLeft: `${depth * 16}px` }}
                         >
                           <KindBadge kind={span.kind} />
-                          <span className="font-medium">{span.name}</span>
+                          <span className="font-medium truncate">{span.name}</span>
                         </div>
                         <div className="flex-1 min-w-[80px] hidden sm:block">
-                          <div className="relative h-2 rounded bg-muted">
-                            <div
-                              className={`absolute top-0 h-2 rounded ${barColor}`}
-                              style={{
-                                left: `${Math.min(Math.max(offsetPct, 0), 100)}%`,
-                                width: `${Math.min(widthPct, 100)}%`,
-                                minWidth: "3px",
-                              }}
-                            />
-                          </div>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <div className="relative h-2 rounded bg-muted">
+                                <div
+                                  className={`absolute top-0 h-2 rounded ${barColor}`}
+                                  style={{
+                                    left: `${Math.min(Math.max(offsetPct, 0), 100)}%`,
+                                    width: `${Math.min(widthPct, 100)}%`,
+                                    minWidth: "3px",
+                                  }}
+                                />
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent
+                              side="top"
+                              className="font-mono"
+                              data-testid={`tooltip-span-${span.spanId}`}
+                            >
+                              {hasOffset ? (
+                                <span>
+                                  Starts at +{formatLatency(startOffset)} · lasts{" "}
+                                  {formatLatency(span.latencyMs)}
+                                </span>
+                              ) : (
+                                <span>Lasts {formatLatency(span.latencyMs)}</span>
+                              )}
+                            </TooltipContent>
+                          </Tooltip>
                         </div>
-                        <span className="font-mono text-xs text-muted-foreground w-16 text-right shrink-0">
-                          {formatLatency(span.latencyMs)}
-                        </span>
-                        <span className="font-mono text-xs text-muted-foreground w-20 text-right shrink-0 hidden md:inline">
-                          {span.totalTokens > 0 ? formatTokens(span.totalTokens) : "—"}
-                        </span>
-                        <Badge
-                          variant={span.status === "error" ? "destructive" : "secondary"}
-                          className="shrink-0"
-                        >
-                          {span.status}
-                        </Badge>
+                        <div className="flex items-center justify-end gap-3 shrink-0 w-[140px] md:w-[230px]">
+                          <span className="font-mono text-xs text-muted-foreground w-16 text-right shrink-0">
+                            {formatLatency(span.latencyMs)}
+                          </span>
+                          <span className="font-mono text-xs text-muted-foreground w-20 text-right shrink-0 hidden md:inline">
+                            {span.totalTokens > 0 ? formatTokens(span.totalTokens) : "—"}
+                          </span>
+                          <Badge
+                            variant={span.status === "error" ? "destructive" : "secondary"}
+                            className="shrink-0"
+                          >
+                            {span.status}
+                          </Badge>
+                        </div>
                       </button>
                       {isOpen && (
                         <div className="px-4 pb-4 pt-1 space-y-3 bg-muted/20">
@@ -621,6 +700,7 @@ export default function TraceDetail() {
                   );
                 })}
               </div>
+              </TooltipProvider>
             </CardContent>
           </Card>
         </>
