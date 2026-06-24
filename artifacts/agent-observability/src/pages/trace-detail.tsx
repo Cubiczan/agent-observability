@@ -123,56 +123,164 @@ function computeDepths(spans: TraceSpan[]): Map<string, number> {
 // Pretty-print JSON-looking strings so large tool payloads are readable; leave
 // plain text (and anything that doesn't parse) untouched. `isJson` tells the
 // renderer whether to apply syntax highlighting.
-function prettyPrint(value: string): { text: string; isJson: boolean } {
+function prettyPrint(value: string): { text: string; isJson: boolean; data?: unknown } {
   const trimmed = value.trim();
   const looksJson =
     (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
     (trimmed.startsWith("[") && trimmed.endsWith("]"));
   if (!looksJson) return { text: value, isJson: false };
   try {
-    return { text: JSON.stringify(JSON.parse(trimmed), null, 2), isJson: true };
+    const parsed = JSON.parse(trimmed);
+    return { text: JSON.stringify(parsed, null, 2), isJson: true, data: parsed };
   } catch {
     return { text: value, isJson: false };
   }
 }
 
-// Matches JSON tokens: strings, true/false/null, and numbers. Everything else
-// (braces, commas, colons, whitespace) is emitted verbatim as punctuation.
-const JSON_TOKEN_RE = /"(?:\\.|[^"\\])*"|\b(?:true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/g;
-
-// Color-code pretty-printed JSON into themed spans. Theme-aware via Tailwind
+// Color-code a primitive JSON value into a themed span. Theme-aware via Tailwind
 // dark: variants so it stays legible in both light and dark mode.
-function highlightJson(code: string): ReactNode[] {
-  const nodes: ReactNode[] = [];
-  let last = 0;
-  let key = 0;
-  let match: RegExpExecArray | null;
-  JSON_TOKEN_RE.lastIndex = 0;
-  while ((match = JSON_TOKEN_RE.exec(code)) !== null) {
-    const token = match[0];
-    const start = match.index;
-    if (start > last) nodes.push(code.slice(last, start));
-    let cls: string;
-    if (token[0] === '"') {
-      cls = /^\s*:/.test(code.slice(start + token.length))
-        ? "text-sky-700 dark:text-sky-300"
-        : "text-emerald-600 dark:text-emerald-400";
-    } else if (token === "true" || token === "false") {
-      cls = "text-violet-600 dark:text-violet-400";
-    } else if (token === "null") {
-      cls = "text-rose-600 dark:text-rose-400";
-    } else {
-      cls = "text-amber-600 dark:text-amber-400";
-    }
-    nodes.push(
-      <span key={key++} className={cls}>
-        {token}
-      </span>,
-    );
-    last = start + token.length;
+function primitiveNode(value: unknown): ReactNode {
+  if (value === null) return <span className="text-rose-600 dark:text-rose-400">null</span>;
+  switch (typeof value) {
+    case "string":
+      return (
+        <span className="text-emerald-600 dark:text-emerald-400">{JSON.stringify(value)}</span>
+      );
+    case "number":
+      return <span className="text-amber-600 dark:text-amber-400">{String(value)}</span>;
+    case "boolean":
+      return <span className="text-violet-600 dark:text-violet-400">{String(value)}</span>;
+    default:
+      return <span>{String(value)}</span>;
   }
-  if (last < code.length) nodes.push(code.slice(last));
-  return nodes;
+}
+
+// A single line/subtree of the JSON tree. Primitives render inline; objects and
+// arrays delegate to JsonBranch so each gets its own collapse state.
+function JsonNode({
+  keyName,
+  value,
+  comma,
+}: {
+  keyName?: string;
+  value: unknown;
+  comma: boolean;
+}) {
+  const prefix =
+    keyName !== undefined ? (
+      <>
+        <span className="text-sky-700 dark:text-sky-300">"{keyName}"</span>
+        <span className="text-muted-foreground">: </span>
+      </>
+    ) : null;
+  if (value !== null && typeof value === "object") {
+    return <JsonBranch keyPrefix={prefix} value={value} comma={comma} />;
+  }
+  return (
+    <div className="whitespace-pre-wrap break-words">
+      {prefix}
+      {primitiveNode(value)}
+      {comma ? <span className="text-muted-foreground">,</span> : null}
+    </div>
+  );
+}
+
+// A collapsible object/array node. Click the bracket to fold the section; a
+// collapsed node shows a compact summary like `{ … } 5 keys` / `[ … ] 12 items`.
+function JsonBranch({
+  keyPrefix,
+  value,
+  comma,
+}: {
+  keyPrefix: ReactNode;
+  value: object;
+  comma: boolean;
+}) {
+  const [collapsed, setCollapsed] = useState(false);
+  const isArray = Array.isArray(value);
+  const entries: Array<[string | undefined, unknown]> = isArray
+    ? (value as unknown[]).map((v) => [undefined, v])
+    : Object.entries(value as Record<string, unknown>);
+  const open = isArray ? "[" : "{";
+  const close = isArray ? "]" : "}";
+  const count = entries.length;
+  const trailingComma = comma ? <span className="text-muted-foreground">,</span> : null;
+
+  if (count === 0) {
+    return (
+      <div className="whitespace-pre-wrap break-words">
+        {keyPrefix}
+        <span className="text-muted-foreground">
+          {open}
+          {close}
+        </span>
+        {trailingComma}
+      </div>
+    );
+  }
+
+  const summary = isArray
+    ? `${count} item${count === 1 ? "" : "s"}`
+    : `${count} key${count === 1 ? "" : "s"}`;
+
+  const Toggle = ({ children }: { children: ReactNode }) => (
+    <button
+      type="button"
+      onClick={() => setCollapsed((c) => !c)}
+      aria-expanded={!collapsed}
+      className="group inline-flex items-baseline gap-1 rounded text-left align-baseline hover:text-foreground"
+      data-testid="button-json-toggle"
+    >
+      <ChevronRight
+        className={`size-3 shrink-0 translate-y-0.5 text-muted-foreground transition-transform group-hover:text-foreground ${collapsed ? "" : "rotate-90"}`}
+      />
+      {children}
+    </button>
+  );
+
+  if (collapsed) {
+    return (
+      <div className="whitespace-pre-wrap break-words">
+        {keyPrefix}
+        <Toggle>
+          <span className="text-muted-foreground">
+            {open} … {close}{" "}
+            <span className="opacity-70">{summary}</span>
+          </span>
+        </Toggle>
+        {trailingComma}
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="whitespace-pre-wrap break-words">
+        {keyPrefix}
+        <Toggle>
+          <span className="text-muted-foreground">{open}</span>
+        </Toggle>
+      </div>
+      <div className="ml-1.5 border-l border-border/50 pl-3">
+        {entries.map(([k, v], idx) => (
+          <JsonNode key={k ?? idx} keyName={k} value={v} comma={idx < count - 1} />
+        ))}
+      </div>
+      <div className="whitespace-pre-wrap break-words">
+        <span className="text-muted-foreground">{close}</span>
+        {trailingComma}
+      </div>
+    </div>
+  );
+}
+
+// Root of the folding JSON view used inside IOBlock (inline + expand dialog).
+function JsonTree({ data }: { data: unknown }) {
+  return (
+    <div className="font-mono text-xs leading-relaxed text-foreground">
+      <JsonNode value={data} comma={false} />
+    </div>
+  );
 }
 
 function CopyButton({ value, testId }: { value: string; testId: string }) {
@@ -214,6 +322,7 @@ function IOBlock({
   const result = value ? prettyPrint(value) : null;
   const formatted = result?.text ?? null;
   const isJson = result?.isJson ?? false;
+  const data = result?.data;
   const key = `${label.toLowerCase()}-${spanId}`;
   return (
     <div className="space-y-1">
@@ -244,21 +353,33 @@ function IOBlock({
                     <CopyButton value={formatted} testId={`button-copy-dialog-${key}`} />
                   </DialogTitle>
                 </DialogHeader>
-                <pre
-                  className="max-h-[70vh] overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/50 p-4 text-xs font-mono text-foreground"
+                <div
+                  className="max-h-[70vh] overflow-auto rounded-md bg-muted/50 p-4"
                   data-testid={`text-dialog-${key}`}
                 >
-                  {isJson ? highlightJson(formatted) : formatted}
-                </pre>
+                  {isJson ? (
+                    <JsonTree data={data} />
+                  ) : (
+                    <pre className="whitespace-pre-wrap break-words text-xs font-mono text-foreground">
+                      {formatted}
+                    </pre>
+                  )}
+                </div>
               </DialogContent>
             </Dialog>
           </div>
         )}
       </div>
       {formatted ? (
-        <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/50 p-3 text-xs font-mono text-foreground">
-          {isJson ? highlightJson(formatted) : formatted}
-        </pre>
+        isJson ? (
+          <div className="max-h-64 overflow-auto rounded-md bg-muted/50 p-3">
+            <JsonTree data={data} />
+          </div>
+        ) : (
+          <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted/50 p-3 text-xs font-mono text-foreground">
+            {formatted}
+          </pre>
+        )
       ) : (
         <div className="text-xs text-muted-foreground italic">No {label.toLowerCase()} recorded</div>
       )}
