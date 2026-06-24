@@ -1265,6 +1265,100 @@ describe("Traces + DateRangeProvider shared link", () => {
     expect(settled.get("gval")).toBe("gpt-4o");
   });
 
+  it("keeps the drill-in breakdown narrowed to the active group while the kind and search filters change", async () => {
+    // Tasks #98/#99/#100 prove drill-in's narrowed breakdown survives the
+    // drill-in<->navigate transition, a group clear/re-select, and a changing
+    // date range. This one fixes the *mode* and *group* and varies the last
+    // untested axis — the kind dropdown and the search box. A user lands in
+    // drill-in narrowed to gpt-4o, picks a span kind via the real kind control,
+    // then types a search term. Through both changes the breakdown query must
+    // stay narrowed to the active group (model=gpt-4o) AND pick up the new
+    // kind/q, while the URL keeps bmode=drillin and the group/gval. A regression
+    // could drop the group dimension when kind/q change, or fail to push the new
+    // kind/q into the narrowed breakdown query.
+    window.localStorage.clear();
+    window.history.replaceState(
+      {},
+      "",
+      "/traces?bmode=drillin&group=model&gval=gpt-4o",
+    );
+
+    render(
+      <DateRangeProvider>
+        <Traces />
+      </DateRangeProvider>,
+    );
+
+    // Start pressed on drill-in purely from the URL's bmode param.
+    const drillin = await screen.findByTestId("breakdown-mode-drillin");
+    expect(drillin).toHaveAttribute("aria-pressed", "true");
+
+    // At mount the narrowed breakdown carries the active group and no kind/q yet.
+    await waitFor(() => {
+      const params = lastBreakdownParams();
+      expect(params.model).toBe("gpt-4o");
+      expect(params.kind).toBeUndefined();
+      expect(params.q).toBeUndefined();
+    });
+
+    // 1) Change the span kind via the real kind control: open the Radix select
+    // and click the "LLM" option, exactly as a user would.
+    fireEvent.click(screen.getByTestId("select-kind"));
+    fireEvent.click(await screen.findByText("LLM"));
+
+    // The breakdown keeps the group dimension but now also carries kind=llm.
+    await waitFor(() => {
+      const params = lastBreakdownParams();
+      expect(params.model).toBe("gpt-4o");
+      expect(params.kind).toBe("llm");
+    });
+    // The URL keeps bmode=drillin and the group/gval while recording kind=llm.
+    await waitFor(() => {
+      const search = new URLSearchParams(window.location.search);
+      expect(search.get("kind")).toBe("llm");
+      expect(search.get("bmode")).toBe("drillin");
+      expect(search.get("group")).toBe("model");
+      expect(search.get("gval")).toBe("gpt-4o");
+    });
+
+    // 2) Type a search term via the real search box.
+    fireEvent.change(screen.getByTestId("input-search-traces"), {
+      target: { value: "gpt" },
+    });
+
+    // The breakdown still keeps the group dimension and the kind, and now also
+    // carries q=gpt — none of the three drop out.
+    await waitFor(() => {
+      const params = lastBreakdownParams();
+      expect(params.model).toBe("gpt-4o");
+      expect(params.kind).toBe("llm");
+      expect(params.q).toBe("gpt");
+    });
+    // The URL keeps bmode=drillin and the group/gval while recording kind/q.
+    await waitFor(() => {
+      const search = new URLSearchParams(window.location.search);
+      expect(search.get("kind")).toBe("llm");
+      expect(search.get("q")).toBe("gpt");
+      expect(search.get("bmode")).toBe("drillin");
+      expect(search.get("group")).toBe("model");
+      expect(search.get("gval")).toBe("gpt-4o");
+    });
+
+    // Extra ticks prove the narrowed-yet-filtered breakdown settled rather than
+    // dropping the group or a filter a tick later.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const settledParams = lastBreakdownParams();
+    expect(settledParams.model).toBe("gpt-4o");
+    expect(settledParams.kind).toBe("llm");
+    expect(settledParams.q).toBe("gpt");
+    const settled = new URLSearchParams(window.location.search);
+    expect(settled.get("bmode")).toBe("drillin");
+    expect(settled.get("group")).toBe("model");
+    expect(settled.get("gval")).toBe("gpt-4o");
+    expect(settled.get("kind")).toBe("llm");
+    expect(settled.get("q")).toBe("gpt");
+  });
+
   it("re-applies the kind, search, and sort choices to a clean path after page-to-page navigation", async () => {
     // Mid-session on an all-time page so there is no date range to also
     // re-apply, isolating the kind/search/sort slice of the *same* URL-sync

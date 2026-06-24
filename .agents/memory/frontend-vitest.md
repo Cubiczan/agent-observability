@@ -21,3 +21,13 @@ PORT/BASE_PATH env and would crash test runs). Setup file
 
 **Why vitest@3 not @2:** vite is on v7 here; vitest@2 (2.1.9) also hit a package
 firewall 403. vitest@3 installs fine and matches vite 7.
+
+**Driving the real Radix Select (kind dropdown) in jsdom:** plain `fireEvent.click`
+on the trigger (`select-kind`) then `fireEvent.click(await findByText("LLM"))` on
+the option works — no @testing-library/user-event needed (it isn't installed).
+But jsdom lacks `Element.prototype.scrollIntoView` / `hasPointerCapture` /
+`releasePointerCapture`, which Radix Select calls on open; without polyfilling
+them in `src/test/setup.ts` the open throws intermittently
+("candidate?.scrollIntoView is not a function"). These polyfills now live in
+setup.ts. Note: the shared-link suite does NOT mock `@/lib/date-range` or
+`wouter` (it uses the real DateRangeProvider), unlike traces.test.tsx.
