@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { format, subDays } from "date-fns";
 import type {
@@ -23,7 +23,24 @@ vi.mock("@workspace/api-client-react", () => ({
 }));
 
 import Traces from "./traces";
-import { DateRangeProvider } from "@/lib/date-range";
+import { DateRangeProvider, useDateRange } from "@/lib/date-range";
+
+// A minimal stand-in for the real DateRangeSelector: it drives the *same*
+// `selectPreset` surface the provider exposes, so a test can change the date
+// range mid-session exactly the way the date picker would, while Traces runs
+// its own URL-sync effect against the same query string.
+function PresetControls() {
+  const { selectPreset } = useDateRange();
+  return (
+    <button
+      type="button"
+      data-testid="apply-7d"
+      onClick={() => selectPreset("7d")}
+    >
+      7d
+    </button>
+  );
+}
 
 type QueryResult<T> = { data: T | undefined; isLoading: boolean };
 
@@ -208,5 +225,104 @@ describe("Traces + DateRangeProvider shared link", () => {
         value: "Engineering",
       });
     });
+  });
+
+  it("keeps both params in the live URL when the date range is changed first, then a breakdown row clicked", async () => {
+    // Mid-session, not a cold load: start on an all-time, unfiltered page so the
+    // query string is empty and there is nothing in localStorage to seed it.
+    window.localStorage.clear();
+    window.history.replaceState({}, "", "/traces");
+
+    render(
+      <DateRangeProvider>
+        <PresetControls />
+        <Traces />
+      </DateRangeProvider>,
+    );
+
+    // 1) Change the date range via the real provider surface.
+    fireEvent.click(screen.getByTestId("apply-7d"));
+    await waitFor(() => {
+      expect(new URLSearchParams(window.location.search).get("range")).toBe("7d");
+    });
+
+    // 2) Then click a breakdown row.
+    fireEvent.click(screen.getByTestId("breakdown-row-gpt-4o"));
+
+    const today = new Date();
+    const expectedFrom = format(subDays(today, 6), "yyyy-MM-dd");
+    const expectedTo = format(today, "yyyy-MM-dd");
+
+    // Both the date window and the group reach the list query simultaneously.
+    await waitFor(() => {
+      const params = lastListParams();
+      expect(params.model).toBe("gpt-4o");
+      expect(params.from).toBe(expectedFrom);
+      expect(params.to).toBe(expectedTo);
+    });
+
+    // Neither effect has stripped the other's params from the URL.
+    await waitFor(() => {
+      const search = new URLSearchParams(window.location.search);
+      expect(search.get("range")).toBe("7d");
+      expect(search.get("group")).toBe("model");
+      expect(search.get("gval")).toBe("gpt-4o");
+    });
+
+    // The URL has truly settled — extra ticks must not drop a param (no ping-pong).
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const settled = new URLSearchParams(window.location.search);
+    expect(settled.get("range")).toBe("7d");
+    expect(settled.get("group")).toBe("model");
+    expect(settled.get("gval")).toBe("gpt-4o");
+  });
+
+  it("keeps both params in the live URL when a breakdown row is clicked first, then the date range changed", async () => {
+    // The reverse order of the previous test: the two URL-sync effects fire in
+    // the opposite sequence, which is the other way a regression could drop one.
+    window.localStorage.clear();
+    window.history.replaceState({}, "", "/traces");
+
+    render(
+      <DateRangeProvider>
+        <PresetControls />
+        <Traces />
+      </DateRangeProvider>,
+    );
+
+    // 1) Click a breakdown row first (still all-time at this point).
+    fireEvent.click(screen.getByTestId("breakdown-row-gpt-4o"));
+    await waitFor(() => {
+      const search = new URLSearchParams(window.location.search);
+      expect(search.get("group")).toBe("model");
+      expect(search.get("gval")).toBe("gpt-4o");
+    });
+
+    // 2) Then change the date range.
+    fireEvent.click(screen.getByTestId("apply-7d"));
+
+    const today = new Date();
+    const expectedFrom = format(subDays(today, 6), "yyyy-MM-dd");
+    const expectedTo = format(today, "yyyy-MM-dd");
+
+    await waitFor(() => {
+      const params = lastListParams();
+      expect(params.model).toBe("gpt-4o");
+      expect(params.from).toBe(expectedFrom);
+      expect(params.to).toBe(expectedTo);
+    });
+
+    await waitFor(() => {
+      const search = new URLSearchParams(window.location.search);
+      expect(search.get("range")).toBe("7d");
+      expect(search.get("group")).toBe("model");
+      expect(search.get("gval")).toBe("gpt-4o");
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const settled = new URLSearchParams(window.location.search);
+    expect(settled.get("range")).toBe("7d");
+    expect(settled.get("group")).toBe("model");
+    expect(settled.get("gval")).toBe("gpt-4o");
   });
 });
