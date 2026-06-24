@@ -663,4 +663,28 @@ describe("traces routes", () => {
     assert.deepEqual(body.byModel, []);
     assert.deepEqual(body.byApp, []);
   });
+
+  // --- Date-range forwarding for the list/summary/breakdown endpoints --------
+  // These three endpoints share parseRange + datadogBounds with the detail
+  // route, so they must convert the dashboard's ISO range into the same
+  // inclusive epoch-millisecond bounds and default to a rolling 30-day window.
+
+  // The ISO range is converted to inclusive epoch-millisecond bounds (start of
+  // `from` day through end of `to` day) and forwarded to Datadog as strings.
+  const RANGE_FROM = String(Date.parse("2026-01-01T00:00:00Z"));
+  const RANGE_TO = String(Date.parse("2026-01-31T23:59:59.999Z"));
+
+  for (const path of ["/traces", "/traces/summary", "/traces/breakdown"]) {
+    test(`GET ${path} forwards the date range to Datadog`, async () => {
+      await getJson(`${base}${path}?from=2026-01-01&to=2026-01-31`);
+      assert.equal(lastDatadogBody?.data?.attributes?.filter?.from, RANGE_FROM);
+      assert.equal(lastDatadogBody?.data?.attributes?.filter?.to, RANGE_TO);
+    });
+
+    test(`GET ${path} defaults to a rolling 30-day window when no range is given`, async () => {
+      await getJson(`${base}${path}`);
+      assert.equal(lastDatadogBody?.data?.attributes?.filter?.from, "now-30d");
+      assert.equal(lastDatadogBody?.data?.attributes?.filter?.to, "now");
+    });
+  }
 });
