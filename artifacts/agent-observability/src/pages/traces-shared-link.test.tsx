@@ -1151,6 +1151,120 @@ describe("Traces + DateRangeProvider shared link", () => {
     );
   });
 
+  it("keeps the drill-in breakdown narrowed to the active group while the date range changes across presets", async () => {
+    // Tasks #98/#99 prove drill-in's narrowed breakdown survives the
+    // drill-in<->navigate transition and a group clear/re-select. This one fixes
+    // the *mode* and *group* and varies the third axis — the date range. A user
+    // lands in drill-in narrowed to gpt-4o on a concrete 7d window, then walks
+    // the date presets (7d -> 30d -> month -> all time). Through every switch the
+    // breakdown query must stay narrowed to the active group (model=gpt-4o) AND
+    // pick up the new from/to window, while the URL keeps bmode=drillin and the
+    // group/gval. A regression could drop the group dimension when the window
+    // changes, or fail to push the new from/to into the narrowed breakdown query.
+    window.localStorage.clear();
+    window.history.replaceState(
+      {},
+      "",
+      "/traces?range=7d&bmode=drillin&group=model&gval=gpt-4o",
+    );
+
+    render(
+      <DateRangeProvider>
+        <PresetControls />
+        <Traces />
+      </DateRangeProvider>,
+    );
+
+    const today = new Date();
+    const from7d = format(subDays(today, 6), "yyyy-MM-dd");
+    const to7d = format(today, "yyyy-MM-dd");
+    const from30d = format(subDays(today, 29), "yyyy-MM-dd");
+    const to30d = format(today, "yyyy-MM-dd");
+    const fromMonth = format(startOfMonth(today), "yyyy-MM-dd");
+    const toMonth = format(today, "yyyy-MM-dd");
+
+    // Start pressed on drill-in purely from the URL's bmode param.
+    const drillin = await screen.findByTestId("breakdown-mode-drillin");
+    expect(drillin).toHaveAttribute("aria-pressed", "true");
+
+    // At mount the narrowed breakdown carries both the active group and the 7d
+    // window — drill-in narrows the breakdown to the group, and the date range
+    // scopes it to the 7d from/to.
+    await waitFor(() => {
+      const params = lastBreakdownParams();
+      expect(params.model).toBe("gpt-4o");
+      expect(params.from).toBe(from7d);
+      expect(params.to).toBe(to7d);
+    });
+
+    // 1) Switch to the 30d preset. The breakdown keeps the group dimension but
+    // updates from/to to the 30d window.
+    fireEvent.click(screen.getByTestId("apply-30d"));
+    await waitFor(() => {
+      const params = lastBreakdownParams();
+      expect(params.model).toBe("gpt-4o");
+      expect(params.from).toBe(from30d);
+      expect(params.to).toBe(to30d);
+    });
+    // The URL keeps bmode=drillin and the group/gval while recording the 30d range.
+    await waitFor(() => {
+      const search = new URLSearchParams(window.location.search);
+      expect(search.get("range")).toBe("30d");
+      expect(search.get("bmode")).toBe("drillin");
+      expect(search.get("group")).toBe("model");
+      expect(search.get("gval")).toBe("gpt-4o");
+    });
+
+    // 2) Switch to the "This month" preset. The breakdown keeps the group and
+    // updates from/to to the month window.
+    fireEvent.click(screen.getByTestId("apply-month"));
+    await waitFor(() => {
+      const params = lastBreakdownParams();
+      expect(params.model).toBe("gpt-4o");
+      expect(params.from).toBe(fromMonth);
+      expect(params.to).toBe(toMonth);
+    });
+    await waitFor(() => {
+      const search = new URLSearchParams(window.location.search);
+      expect(search.get("range")).toBe("month");
+      expect(search.get("bmode")).toBe("drillin");
+      expect(search.get("group")).toBe("model");
+      expect(search.get("gval")).toBe("gpt-4o");
+    });
+
+    // 3) Switch to "All time". The breakdown drops from/to entirely but still
+    // keeps the group dimension narrowed.
+    fireEvent.click(screen.getByTestId("apply-all"));
+    await waitFor(() => {
+      const params = lastBreakdownParams();
+      expect(params.model).toBe("gpt-4o");
+      expect(params.from).toBeUndefined();
+      expect(params.to).toBeUndefined();
+    });
+    // The URL strips range/from/to while keeping bmode=drillin and the group.
+    await waitFor(() => {
+      const search = new URLSearchParams(window.location.search);
+      expect(search.get("range")).toBeNull();
+      expect(search.get("from")).toBeNull();
+      expect(search.get("to")).toBeNull();
+      expect(search.get("bmode")).toBe("drillin");
+      expect(search.get("group")).toBe("model");
+      expect(search.get("gval")).toBe("gpt-4o");
+    });
+
+    // Extra ticks prove the narrowed-yet-all-time breakdown settled rather than
+    // dropping the group or snapping a date window back a tick later.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const settledParams = lastBreakdownParams();
+    expect(settledParams.model).toBe("gpt-4o");
+    expect(settledParams.from).toBeUndefined();
+    expect(settledParams.to).toBeUndefined();
+    const settled = new URLSearchParams(window.location.search);
+    expect(settled.get("bmode")).toBe("drillin");
+    expect(settled.get("group")).toBe("model");
+    expect(settled.get("gval")).toBe("gpt-4o");
+  });
+
   it("re-applies the kind, search, and sort choices to a clean path after page-to-page navigation", async () => {
     // Mid-session on an all-time page so there is no date range to also
     // re-apply, isolating the kind/search/sort slice of the *same* URL-sync
