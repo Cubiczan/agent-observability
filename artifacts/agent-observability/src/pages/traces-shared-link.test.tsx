@@ -32,13 +32,22 @@ import { DateRangeProvider, useDateRange } from "@/lib/date-range";
 function PresetControls() {
   const { selectPreset } = useDateRange();
   return (
-    <button
-      type="button"
-      data-testid="apply-7d"
-      onClick={() => selectPreset("7d")}
-    >
-      7d
-    </button>
+    <>
+      <button
+        type="button"
+        data-testid="apply-7d"
+        onClick={() => selectPreset("7d")}
+      >
+        7d
+      </button>
+      <button
+        type="button"
+        data-testid="apply-all"
+        onClick={() => selectPreset("all")}
+      >
+        All time
+      </button>
+    </>
   );
 }
 
@@ -195,6 +204,76 @@ describe("Traces + DateRangeProvider shared link", () => {
     expect(search.get("range")).toBeNull();
     expect(search.get("from")).toBeNull();
     expect(search.get("to")).toBeNull();
+  });
+
+  it("strips the date range but keeps the breakdown filter when switching back to all time", async () => {
+    // Mid-session: open on a concrete range (7d) so range/from/to are live in
+    // the URL and the list query, with nothing in localStorage to seed it.
+    window.localStorage.clear();
+    window.history.replaceState({}, "", "/traces?range=7d");
+
+    render(
+      <DateRangeProvider>
+        <PresetControls />
+        <Traces />
+      </DateRangeProvider>,
+    );
+
+    const today = new Date();
+    const expectedFrom = format(subDays(today, 6), "yyyy-MM-dd");
+    const expectedTo = format(today, "yyyy-MM-dd");
+
+    // The 7d window reaches the list query at mount.
+    await waitFor(() => {
+      const params = lastListParams();
+      expect(params.from).toBe(expectedFrom);
+      expect(params.to).toBe(expectedTo);
+    });
+
+    // 1) Activate a breakdown filter by clicking a row.
+    fireEvent.click(screen.getByTestId("breakdown-row-gpt-4o"));
+    await waitFor(() => {
+      const search = new URLSearchParams(window.location.search);
+      expect(search.get("group")).toBe("model");
+      expect(search.get("gval")).toBe("gpt-4o");
+    });
+    // Both the range and the group are live together before the switch.
+    await waitFor(() => {
+      const params = lastListParams();
+      expect(params.model).toBe("gpt-4o");
+      expect(params.from).toBe(expectedFrom);
+      expect(params.to).toBe(expectedTo);
+    });
+
+    // 2) Switch the date range back to "All time" via the provider surface.
+    fireEvent.click(screen.getByTestId("apply-all"));
+
+    // The all-time list query drops from/to but keeps the group dimension.
+    await waitFor(() => {
+      const params = lastListParams();
+      expect(params.model).toBe("gpt-4o");
+      expect(params.from).toBeUndefined();
+      expect(params.to).toBeUndefined();
+    });
+
+    // The URL strips range/from/to while leaving the breakdown's group/gval.
+    await waitFor(() => {
+      const search = new URLSearchParams(window.location.search);
+      expect(search.get("range")).toBeNull();
+      expect(search.get("from")).toBeNull();
+      expect(search.get("to")).toBeNull();
+      expect(search.get("group")).toBe("model");
+      expect(search.get("gval")).toBe("gpt-4o");
+    });
+
+    // Extra ticks must not bring range/from/to back or drop the group (no ping-pong).
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const settled = new URLSearchParams(window.location.search);
+    expect(settled.get("range")).toBeNull();
+    expect(settled.get("from")).toBeNull();
+    expect(settled.get("to")).toBeNull();
+    expect(settled.get("group")).toBe("model");
+    expect(settled.get("gval")).toBe("gpt-4o");
   });
 
   it("persists the restored range and group so they outlive the shared link", async () => {
