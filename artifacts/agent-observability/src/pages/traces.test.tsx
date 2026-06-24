@@ -133,6 +133,14 @@ function lastListParams(): Record<string, unknown> {
   return (call?.[0] ?? {}) as Record<string, unknown>;
 }
 
+// The most recent params object handed to the breakdown query. In "navigate"
+// mode this stays scoped to date/kind/search only; in "drillin" mode it also
+// narrows to the active group.
+function lastBreakdownParams(): Record<string, unknown> {
+  const call = useGetTraceCostBreakdown.mock.calls.at(-1);
+  return (call?.[0] ?? {}) as Record<string, unknown>;
+}
+
 describe("Traces page breakdown click-to-filter", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -268,6 +276,145 @@ describe("Traces page breakdown click-to-filter", () => {
     } finally {
       // Reset the URL so it does not leak into other tests.
       window.history.replaceState({}, "", "/traces");
+    }
+  });
+});
+
+describe("Traces page breakdown Navigate vs Drill-in modes", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    window.localStorage.clear();
+    useListTraces.mockReturnValue(tracesResult({}));
+    useGetTraceSummary.mockReturnValue(summaryResult({}));
+    useGetTraceCostBreakdown.mockReturnValue(
+      breakdownResult({
+        data: {
+          noData: false,
+          byModel: [group({ key: "gpt-4o" })],
+          byApp: [group({ key: "support-bot" })],
+          byDepartment: [group({ key: "Engineering" })],
+        },
+      }),
+    );
+  });
+
+  it("defaults to Navigate mode with Navigate pressed and Drill in not pressed", () => {
+    render(<Traces />);
+
+    expect(screen.getByTestId("breakdown-mode-toggle")).toBeInTheDocument();
+    expect(screen.getByTestId("breakdown-mode-navigate")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByTestId("breakdown-mode-drillin")).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+  });
+
+  it("keeps the breakdown query scoped to the base filters in Navigate mode", () => {
+    render(<Traces />);
+
+    // Selecting a row narrows the table/summary query but, in navigate mode,
+    // the breakdown stays scoped to date/kind/search only (no active group).
+    fireEvent.click(screen.getByTestId("breakdown-row-gpt-4o"));
+
+    expect(lastListParams().model).toBe("gpt-4o");
+    expect(lastBreakdownParams().model).toBeUndefined();
+  });
+
+  it("narrows the breakdown query to the active group only in Drill-in mode", () => {
+    render(<Traces />);
+
+    fireEvent.click(screen.getByTestId("breakdown-row-gpt-4o"));
+    // Sanity check: navigate mode does not pass the group to the breakdown.
+    expect(lastBreakdownParams().model).toBeUndefined();
+
+    fireEvent.click(screen.getByTestId("breakdown-mode-drillin"));
+
+    // Now the breakdown query carries the active group too.
+    expect(lastBreakdownParams().model).toBe("gpt-4o");
+    // The table/summary query is unchanged — it always narrows to the group.
+    expect(lastListParams().model).toBe("gpt-4o");
+  });
+
+  it("stops scoping the breakdown to the group when switching back to Navigate", () => {
+    render(<Traces />);
+
+    fireEvent.click(screen.getByTestId("breakdown-row-Engineering"));
+    fireEvent.click(screen.getByTestId("breakdown-mode-drillin"));
+    expect(lastBreakdownParams().department).toBe("Engineering");
+
+    fireEvent.click(screen.getByTestId("breakdown-mode-navigate"));
+
+    expect(lastBreakdownParams().department).toBeUndefined();
+    // The group filter itself is still active for the table.
+    expect(lastListParams().department).toBe("Engineering");
+  });
+
+  it("persists the mode to the URL (bmode) and localStorage", () => {
+    render(<Traces />);
+
+    fireEvent.click(screen.getByTestId("breakdown-mode-drillin"));
+
+    // URL reflects the mode via the bmode param.
+    const urls = navigate.mock.calls.map((c) => String(c[0]));
+    expect(urls.some((u) => u.includes("bmode=drillin"))).toBe(true);
+
+    // localStorage remembers the mode so it survives <Link> navigation.
+    const stored = JSON.parse(window.localStorage.getItem(VIEW_STORAGE_KEY) ?? "{}");
+    expect(stored.breakdownMode).toBe("drillin");
+  });
+
+  it("restores Drill-in mode from localStorage across a re-render", () => {
+    window.localStorage.setItem(
+      VIEW_STORAGE_KEY,
+      JSON.stringify({
+        breakdownMode: "drillin",
+        group: { dimension: "model", value: "gpt-4o" },
+      }),
+    );
+
+    const { unmount } = render(<Traces />);
+
+    // Drill-in is active on mount and the breakdown is scoped to the group.
+    expect(screen.getByTestId("breakdown-mode-drillin")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(lastBreakdownParams().model).toBe("gpt-4o");
+
+    // Re-rendering (e.g. navigating away and back) keeps the persisted mode.
+    unmount();
+    render(<Traces />);
+
+    expect(screen.getByTestId("breakdown-mode-drillin")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(lastBreakdownParams().model).toBe("gpt-4o");
+  });
+
+  it("restores Drill-in mode from the bmode URL param on a cold load", () => {
+    const original = window.location.search;
+    Object.defineProperty(window, "location", {
+      value: { ...window.location, search: "?bmode=drillin&group=app&gval=support-bot" },
+      writable: true,
+    });
+
+    try {
+      render(<Traces />);
+
+      expect(screen.getByTestId("breakdown-mode-drillin")).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      expect(lastBreakdownParams().app).toBe("support-bot");
+    } finally {
+      Object.defineProperty(window, "location", {
+        value: { ...window.location, search: original },
+        writable: true,
+      });
     }
   });
 });
