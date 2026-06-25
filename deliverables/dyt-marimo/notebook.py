@@ -1525,7 +1525,27 @@ def _(mo):
 
 
 @app.cell
-def _(device, np, torch):
+def _(mo):
+    # Live controls — viewers can probe how dataset difficulty interacts with
+    # normalization. Bounds are chosen so a CPU run still finishes within molab
+    # limits.
+    conv_noise = mo.ui.slider(0.0, 0.7, step=0.05, value=0.35,
+                              label="Pixel noise")
+    conv_per_class = mo.ui.slider(150, 400, step=50, value=300,
+                                  label="Images per class")
+    mo.vstack([
+        mo.md(
+            "**Tune the experiment.** Change these, then (re)train below to watch "
+            "the BatchNorm / DyT / no-norm gap respond — noisier images are exactly "
+            "where stable optimization earns its keep."
+        ),
+        mo.hstack([conv_noise, conv_per_class], justify="start", gap=2),
+    ])
+    return conv_noise, conv_per_class
+
+
+@app.cell
+def _(conv_noise, conv_per_class, device, np, torch):
     def make_shapes(per_class=300, size=28, noise=0.35, seed=0):
         """A tiny shapes dataset (disk / square / triangle) drawn with NumPy.
 
@@ -1564,7 +1584,8 @@ def _(device, np, torch):
 
     conv_size = 28
     _X, _y, conv_class_names = make_shapes(
-        per_class=300, size=conv_size, noise=0.35, seed=0
+        per_class=conv_per_class.value, size=conv_size,
+        noise=conv_noise.value, seed=0
     )
     conv_classes = len(conv_class_names)
 
@@ -1720,7 +1741,7 @@ def _(mo):
 
 
 @app.cell
-def _(conv_btn, device, mo, os, train_conv):
+def _(conv_btn, conv_noise, conv_per_class, device, mo, os, train_conv):
     mo.stop(
         not (conv_btn.value or os.environ.get("DYT_AUTORUN")),
         mo.md("☝️ *Click to train three small ConvNets (BatchNorm, DyT, no-norm).*"),
@@ -1739,12 +1760,29 @@ def _(conv_btn, device, mo, os, train_conv):
             _m, _h = train_conv(_v, steps=_steps, eval_interval=_eval, progress=_bar)
             conv_results[_v] = _h
             conv_models[_v] = _m
-    mo.md("✅ Done — three deep ConvNets trained with identical settings.")
-    return conv_models, conv_results
+    # Snapshot the slider settings these models were trained with, so the result
+    # and α-tracking cells below can detect when the sliders have moved and avoid
+    # drawing stale models over a freshly-regenerated dataset.
+    conv_trained_settings = (conv_per_class.value, round(conv_noise.value, 3))
+    mo.md(
+        f"✅ Done — three deep ConvNets trained with identical settings "
+        f"(**{conv_per_class.value}** images/class, "
+        f"pixel noise **{conv_noise.value:.2f}**)."
+    )
+    return conv_models, conv_results, conv_trained_settings
 
 
 @app.cell
-def _(conv_results, mo, plt):
+def _(conv_noise, conv_per_class, conv_results, conv_trained_settings, mo, plt):
+    # Guard: if the sliders moved since the last run, these curves describe the
+    # *old* dataset. Hide them behind a prompt rather than show a stale plot.
+    mo.stop(
+        (conv_per_class.value, round(conv_noise.value, 3)) != conv_trained_settings,
+        mo.md(
+            "⚠️ **Settings changed since the last run** — click **▶ Train ConvNet** "
+            "above to re-train and refresh these curves."
+        ),
+    )
     _labels = {"batchnorm": "BatchNorm", "dyt": "DyT", "none": "no norm"}
     _colors = {"batchnorm": "#2b2d42", "dyt": "#e4572e", "none": "#8d99ae"}
 
@@ -1788,7 +1826,18 @@ def _(conv_results, mo, plt):
 
 
 @app.cell
-def _(DyT2d, conv_Xtr, conv_models, mo, np, plt, torch):
+def _(DyT2d, conv_Xtr, conv_models, conv_noise, conv_per_class,
+      conv_trained_settings, mo, np, plt, torch):
+    # Guard: conv_Xtr regenerates live as the sliders move, but conv_models only
+    # retrains on a button click. Without this check the old models would be
+    # measured against a freshly-regenerated dataset, which looks wrong.
+    mo.stop(
+        (conv_per_class.value, round(conv_noise.value, 3)) != conv_trained_settings,
+        mo.md(
+            "⚠️ **Settings changed since the last run** — click **▶ Train ConvNet** "
+            "above to re-train and refresh this α-vs-1/std comparison."
+        ),
+    )
     # Repeat Section 6's check on the ConvNet: does each DyT2d layer's learned
     # scalar α track 1/std of the conv feature map it sees? Measured on a forward
     # pass over the shapes data.

@@ -16,3 +16,6 @@ Standalone Python deliverables live under `deliverables/<name>/` (not pnpm artif
 - For headless runs add an env escape hatch: `should = button.value or os.environ.get("DYT_AUTORUN")`. Pair with a steps override (`DYT_STEPS`) for fast smoke tests.
 
 **Why:** lets you prove the whole pipeline (train + plots + generate) runs in CI/CLI even though the gated buttons are never clicked and there's no GPU.
+
+## Running the validation
+- Deps are NOT preinstalled. `installLanguagePackages({language:"python", packages:[...]})` installs torch+cpu/marimo/etc into a uv venv at the **repo root** `.pythonlibs/` (not inside `deliverables/<name>/`). Invoke as `../../.pythonlibs/bin/python notebook.py` from the deliverable dir.
