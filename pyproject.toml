@@ -5,11 +5,11 @@ description = "Add your description here"
 requires-python = ">=3.11"
 dependencies = [
     "altair>=6.2.2",
-    "marimo>=0.23.10",
-    "matplotlib>=3.11.0",
-    "numpy>=2.4.6",
+    "marimo>=0.13",
+    "matplotlib>=3.8",
+    "numpy>=1.26",
     "pandas>=3.0.3",
-    "torch>=2.12.1",
+    "torch>=2.2",
 ]
 
 [[tool.uv.index]]

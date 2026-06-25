@@ -1083,7 +1083,27 @@ def _(mo):
 
 
 @app.cell
-def _(device, np, torch):
+def _(mo):
+    # Live controls — viewers can probe *when* the normalization gap widens.
+    # Bounds are chosen so a CPU run still finishes within molab limits.
+    mlp_depth = mo.ui.slider(2, 12, value=6, label="MLP depth (hidden stages)")
+    mlp_noise = mo.ui.slider(0.0, 0.6, step=0.05, value=0.20,
+                             label="Spiral noise")
+    mlp_nclasses = mo.ui.slider(2, 5, value=3, label="Spiral classes")
+    mo.vstack([
+        mo.md(
+            "**Tune the experiment.** Change these, then (re)train below to watch "
+            "the BatchNorm / DyT / no-norm gap respond — deeper and noisier nets "
+            "are exactly where normalization earns its keep."
+        ),
+        mo.hstack([mlp_depth, mlp_noise, mlp_nclasses],
+                  justify="start", gap=2),
+    ])
+    return mlp_depth, mlp_nclasses, mlp_noise
+
+
+@app.cell
+def _(device, mlp_nclasses, mlp_noise, np, torch):
     def make_spirals(points_per_class=300, n_classes=3, noise=0.20, seed=0):
         """A classic interleaved-spirals dataset, generated with NumPy (no download)."""
         rng = np.random.default_rng(seed)
@@ -1101,8 +1121,9 @@ def _(device, np, torch):
             y[idx] = c
         return X, y
 
-    mlp_classes = 3
-    _X, _y = make_spirals(points_per_class=300, n_classes=mlp_classes, seed=0)
+    mlp_classes = mlp_nclasses.value
+    _X, _y = make_spirals(points_per_class=300, n_classes=mlp_classes,
+                          noise=mlp_noise.value, seed=0)
 
     # Deterministic train/test split.
     _perm = np.random.default_rng(1).permutation(len(_X))
@@ -1142,10 +1163,10 @@ def _(F, device, make_norm, mlp_Xte, mlp_Xtr, mlp_classes, mlp_yte, mlp_ytr,
         def forward(self, x):
             return self.head(self.body(x))
 
-    def train_mlp(norm_kind, steps, eval_interval, progress=None):
+    def train_mlp(norm_kind, steps, eval_interval, depth=6, progress=None):
         """Train a TinyMLP from a fixed seed so variants are directly comparable."""
         seed_everything(1337)  # identical init across norm kinds
-        model = TinyMLP(2, 64, depth=6, n_classes=mlp_classes,
+        model = TinyMLP(2, 64, depth=depth, n_classes=mlp_classes,
                         norm_kind=norm_kind).to(device)
         opt = torch.optim.AdamW(model.parameters(), lr=3e-3, weight_decay=1e-4)
         hist = {"step": [], "train_loss": [], "test_loss": [],
@@ -1185,12 +1206,13 @@ def _(F, device, make_norm, mlp_Xte, mlp_Xtr, mlp_classes, mlp_yte, mlp_ytr,
 
 
 @app.cell
-def _(mlp_Xtr, mo, np, plt):
+def _(mlp_Xtr, mlp_classes, mo, np, plt):
     # Show the raw synthetic task so the reader knows what's being classified.
     _Xc = mlp_Xtr.cpu().numpy()
     _fig, _ax = plt.subplots(figsize=(4.8, 4.8))
     _ax.scatter(_Xc[:, 0], _Xc[:, 1], s=6, c="#8d99ae", alpha=0.6)
-    _ax.set_title("The synthetic task: interleaved spirals\n(3 classes, generated with NumPy)")
+    _ax.set_title(f"The synthetic task: interleaved spirals\n"
+                  f"({mlp_classes} classes, generated with NumPy)")
     _ax.set_xticks([]); _ax.set_yticks([])
     _fig.tight_layout()
     mo.vstack([
@@ -1211,7 +1233,7 @@ def _(mo):
 
 
 @app.cell
-def _(device, mlp_btn, mo, os, train_mlp):
+def _(device, mlp_btn, mlp_depth, mlp_nclasses, mlp_noise, mo, os, train_mlp):
     mo.stop(
         not (mlp_btn.value or os.environ.get("DYT_AUTORUN")),
         mo.md("☝️ *Click to train three small MLPs (BatchNorm, DyT, no-norm).*"),
@@ -1220,6 +1242,7 @@ def _(device, mlp_btn, mo, os, train_mlp):
     if os.environ.get("DYT_STEPS"):
         _steps = min(_steps, int(os.environ["DYT_STEPS"]))
     _eval = max(1, _steps // 20)
+    _depth = mlp_depth.value
     _variants = ["batchnorm", "dyt", "none"]
     mlp_results = {}
     mlp_models = {}
@@ -1227,10 +1250,15 @@ def _(device, mlp_btn, mo, os, train_mlp):
         total=len(_variants) * (_steps + 1), title="Training MLPs"
     ) as _bar:
         for _v in _variants:
-            _m, _h = train_mlp(_v, steps=_steps, eval_interval=_eval, progress=_bar)
+            _m, _h = train_mlp(_v, steps=_steps, eval_interval=_eval,
+                               depth=_depth, progress=_bar)
             mlp_results[_v] = _h
             mlp_models[_v] = _m
-    mo.md("✅ Done — three MLPs trained with identical settings.")
+    mo.md(
+        f"✅ Done — three MLPs trained with identical settings "
+        f"(depth **{_depth}**, **{mlp_nclasses.value}** classes, "
+        f"noise **{mlp_noise.value:.2f}**)."
+    )
     return mlp_models, mlp_results
 
 
