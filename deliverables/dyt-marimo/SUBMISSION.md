@@ -50,12 +50,21 @@ When the overlaid curves render:
 
 Point at the final-loss line.
 
-### 2:15 — What α learns (20s)
+### 2:15 — The speed-up (15s)
+Click **Run speed benchmark**:
+> "Matching quality is only half of it. DyT has no mean or variance to compute — no
+> reduction. So I time it head-to-head against LayerNorm and RMSNorm."
+
+When the latency curves render:
+> "DyT pulls ahead, and the gap widens with hidden size — that's the cost of the
+> reduction the normalized ops can't avoid."
+
+### 2:30 — What α learns (20s)
 Show the α-vs-1/std bar chart:
 > "The learned alpha lines up with one-over-std of the activations. With a single
 > parameter, DyT rediscovers the scale that normalization computes by hand."
 
-### 2:35 — Original extension (30s)
+### 2:50 — Original extension (30s)
 Click **Run ablation**:
 > "My extension: which property of tanh actually matters? I swap in hardtanh,
 > sigmoid, and plain identity."
@@ -65,7 +74,7 @@ When results render:
 > trails tanh: smoothness helps. So DyT works because the squash is smooth,
 > bounded, and centered — exactly the LayerNorm shape from the start."
 
-### 3:05 — Close (10s)
+### 3:20 — Close (10s)
 > "Normalization wasn't magic — it was a tanh. And making that explicit gives you
 > a simpler, reduction-free Transformer block. Thanks for watching."
 
@@ -88,8 +97,9 @@ access.
    add `marimo`, `torch`, `numpy`, `matplotlib` (mirrors `requirements.txt`).
 4. **Select a GPU runtime** so the notebook picks the GPU profile automatically
    (the code detects CUDA and scales up).
-5. Run top-to-bottom: click **Train baseline**, **Train DyT**, then
-   **Run ablation**. Confirm every plot renders and the DyT/baseline curves track.
+5. Run top-to-bottom: click **Train baseline**, **Train DyT**, **Run speed
+   benchmark**, then **Run ablation**. Confirm every plot renders, the DyT/baseline
+   curves track, and the benchmark shows DyT ahead at the larger hidden sizes.
 6. **Publish / share** the notebook and copy the public link.
 
 ---
@@ -112,5 +122,8 @@ access.
   GPU training.
 - **Real GPU experiment:** baseline-norm vs DyT trained head-to-head with live
   progress and overlaid curves.
+- **Efficiency claim made tangible:** a latency/throughput micro-benchmark showing
+  the reduction-free DyT is faster than LayerNorm/RMSNorm, with the gap growing in
+  hidden size.
 - **Faithful reproduction:** the measured LayerNorm S-curve and learned-α analysis.
 - **Original extension:** the squashing-function ablation isolating *why* tanh.

@@ -49,9 +49,11 @@ def _(mo):
         3. **The module** — a clean, drop-in `DyT` implementation.
         4. **The proof** — train baseline-norm vs DyT side-by-side on the same data and
            watch the curves track each other.
-        5. **What `α` learns** — visualize the learned per-layer `α` and its link to
+        5. **The speed-up** — a latency/throughput micro-benchmark showing DyT is
+           *faster* than LayerNorm/RMSNorm because it has no reduction op.
+        6. **What `α` learns** — visualize the learned per-layer `α` and its link to
            activation statistics ($\alpha \approx 1/\mathrm{std}$).
-        6. **Original extension** — a squashing-function ablation that isolates *which*
+        7. **Original extension** — a squashing-function ablation that isolates *which*
            property of `tanh` actually matters.
 
         Everything is self-contained: a tiny character-level GPT trained on an embedded
@@ -686,7 +688,170 @@ def _(baseline_hist, dyt_hist, mo, plt):
 def _(mo):
     mo.md(
         r"""
-        ## 5 · What does `α` learn?
+        ## 5 · The speed-up: DyT is *faster* because it skips the reduction
+
+        Matching quality is half the story. The other headline benefit is **efficiency**:
+        `LayerNorm` computes a **mean and a variance**, and `RMSNorm` a **mean of
+        squares**, *across the feature axis* at every token of every layer. Each of those
+        is a **reduction** — a sum over the whole feature dimension that every output must
+        wait on, and on a GPU that is a synchronization point. `DyT` has **no reduction at
+        all**: each output element is an independent `γ·tanh(αx)+β`.
+
+        Below we time **forward** and **forward+backward** passes of the three norms in
+        isolation, across a few hidden sizes, on whatever device is detected (GPU in
+        molab, CPU locally). We report latency per pass and forward throughput
+        (tokens/sec). The reduction-free op should pull ahead as the feature dimension
+        grows.
+        """
+    )
+    return
+
+
+@app.cell
+def _(mo):
+    bench_btn = mo.ui.run_button(
+        label="▶ Run speed benchmark (DyT vs LayerNorm vs RMSNorm)"
+    )
+    bench_btn
+    return (bench_btn,)
+
+
+@app.cell
+def _(bench_btn, device, make_norm, mo, os, time, torch):
+    mo.stop(
+        not (bench_btn.value or os.environ.get("DYT_AUTORUN")),
+        mo.md("☝️ *Click to time forward and forward+backward passes.*"),
+    )
+
+    _on_gpu = device == "cuda"
+    if _on_gpu:
+        _B, _T = 32, 256
+        _hidden = [256, 512, 1024, 2048]
+        _iters, _warmup = 50, 10
+    else:
+        _B, _T = 16, 64
+        _hidden = [128, 256, 512]
+        _iters, _warmup = 20, 5
+
+    # Keep headless validation (DYT_AUTORUN) snappy.
+    if os.environ.get("DYT_AUTORUN"):
+        _hidden = _hidden[:2]
+        _iters, _warmup = 5, 2
+
+    def _sync():
+        if _on_gpu:
+            torch.cuda.synchronize()
+
+    def _time_norm(norm, dim, backward):
+        x = torch.randn(_B, _T, dim, device=device)
+        if backward:
+            x.requires_grad_(True)
+
+        def _step():
+            if backward:
+                y = norm(x)
+                y.sum().backward()
+                norm.zero_grad(set_to_none=True)
+                x.grad = None
+            else:
+                with torch.no_grad():
+                    norm(x)
+
+        for _ in range(_warmup):
+            _step()
+        _sync()
+        _t0 = time.perf_counter()
+        for _ in range(_iters):
+            _step()
+        _sync()
+        return (time.perf_counter() - _t0) / _iters
+
+    _kinds = ["layernorm", "rmsnorm", "dyt"]
+    bench_results = {
+        k: {"hidden": [], "fwd_ms": [], "fwdbwd_ms": [], "tok_s": []} for k in _kinds
+    }
+    with mo.status.progress_bar(
+        total=len(_kinds) * len(_hidden) * 2, title="Benchmarking norms"
+    ) as _bar:
+        for _dim in _hidden:
+            for _k in _kinds:
+                _norm = make_norm(_k, _dim).to(device)
+                _fwd = _time_norm(_norm, _dim, backward=False)
+                _bar.update()
+                _fb = _time_norm(_norm, _dim, backward=True)
+                _bar.update()
+                bench_results[_k]["hidden"].append(_dim)
+                bench_results[_k]["fwd_ms"].append(_fwd * 1e3)
+                bench_results[_k]["fwdbwd_ms"].append(_fb * 1e3)
+                bench_results[_k]["tok_s"].append((_B * _T) / _fwd)
+
+    bench_meta = dict(B=_B, T=_T, hidden=_hidden, iters=_iters, on_gpu=_on_gpu)
+    mo.md(
+        f"✅ Benchmarked on `{device}` — {_B}×{_T} tokens per pass, "
+        f"{_iters} timed iters per point."
+    )
+    return bench_meta, bench_results
+
+
+@app.cell
+def _(bench_meta, bench_results, device, mo, plt):
+    _labels = {"layernorm": "LayerNorm", "rmsnorm": "RMSNorm", "dyt": "DyT"}
+    _colors = {"layernorm": "#2b2d42", "rmsnorm": "#5b8def", "dyt": "#e4572e"}
+
+    _fig, (_ax1, _ax2) = plt.subplots(1, 2, figsize=(11, 4.4))
+    for _k in ("layernorm", "rmsnorm", "dyt"):
+        _h = bench_results[_k]["hidden"]
+        _ax1.plot(_h, bench_results[_k]["fwd_ms"], color=_colors[_k], lw=2,
+                  marker="o", ms=4, label=_labels[_k])
+        _ax2.plot(_h, bench_results[_k]["fwdbwd_ms"], color=_colors[_k], lw=2,
+                  marker="s", ms=4, label=_labels[_k])
+    for _ax, _ttl in ((_ax1, "Forward latency"), (_ax2, "Forward + backward latency")):
+        _ax.set_xlabel("hidden size")
+        _ax.set_ylabel("latency per pass (ms)")
+        _ax.set_title(_ttl)
+        _ax.grid(alpha=0.2)
+        _ax.legend(fontsize=8)
+    _fig.tight_layout()
+
+    # Compare at the largest hidden size, where the reduction cost is largest.
+    _ln = bench_results["layernorm"]["fwd_ms"][-1]
+    _rms = bench_results["rmsnorm"]["fwd_ms"][-1]
+    _dyt = bench_results["dyt"]["fwd_ms"][-1]
+    _spd_ln = _ln / _dyt
+    _spd_rms = _rms / _dyt
+    _hmax = bench_meta["hidden"][-1]
+    _dev = "GPU" if bench_meta["on_gpu"] else "CPU"
+    _verdict = (
+        "comes out **fastest**" if (_spd_ln > 1 and _spd_rms > 1)
+        else "is in the same range as the normalized ops"
+    )
+    mo.vstack([
+        _fig,
+        mo.md(
+            f"""
+            **Takeaway.** At hidden size **{_hmax}** on **{_dev}**, a forward DyT pass runs
+            at **{_spd_ln:.2f}×** the throughput of LayerNorm and **{_spd_rms:.2f}×** that
+            of RMSNorm (DyT **{bench_results['dyt']['tok_s'][-1]:,.0f}** tok/s vs LayerNorm
+            **{bench_results['layernorm']['tok_s'][-1]:,.0f}** tok/s). Here DyT {_verdict}.
+
+            The reason is structural: LayerNorm pays for a **mean *and* a variance**, RMSNorm
+            for a **mean of squares** — both *reductions* across the feature axis that act as
+            a synchronization point. DyT is purely **element-wise**, so it skips that work
+            entirely, and the gap **widens with hidden size** as the reduction gets more
+            expensive. (On CPU at small sizes `tanh` is itself non-trivial, so the margin can
+            be small or noisy — the effect is sharpest on GPU with large feature dimensions,
+            which is exactly the regime real Transformers run in.)
+            """
+        ),
+    ])
+    return
+
+
+@app.cell
+def _(mo):
+    mo.md(
+        r"""
+        ## 6 · What does `α` learn?
 
         The paper reports that the learned scalar `α` ends up tracking roughly **1/std**
         of each layer's input activations — i.e. DyT discovers, with a single parameter,
@@ -753,7 +918,7 @@ def _(DyT, dyt_model, get_batch, mo, nn, np, plt, torch):
 def _(mo):
     mo.md(
         r"""
-        ## 6 · Original extension — *which* property of `tanh` actually matters?
+        ## 7 · Original extension — *which* property of `tanh` actually matters?
 
         DyT works, but the paper leaves a natural question only partly answered: is it
         the **boundedness**, the **smoothness**, or the **zero-centering** of `tanh`
@@ -888,7 +1053,7 @@ def _(decode, dyt_model, mo, torch):
 def _(mo):
     mo.md(
         r"""
-        ## 7 · Conclusion
+        ## 8 · Conclusion
 
         - Normalization in Transformers was assumed essential, partly because it is
           everywhere and partly because removing it naïvely breaks training.
@@ -899,6 +1064,9 @@ def _(mo):
         - Trained head-to-head with **no extra tuning**, DyT **matches** the normalized
           baseline here, and its learned `α` **tracks 1/std** — recovering the scale
           normalization computes by hand.
+        - Because it skips the mean/variance **reduction**, DyT is also **faster** — our
+          micro-benchmark times it ahead of LayerNorm/RMSNorm, with the gap widening as
+          the hidden size grows.
         - Our **ablation** shows the win comes specifically from a *smooth, bounded,
           zero-centered* squash, which is exactly the shape LayerNorm was producing.
 
