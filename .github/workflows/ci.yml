@@ -11,6 +11,13 @@ jobs:
     name: Typecheck & Build
     runs-on: ubuntu-latest
 
+    env:
+      # The Vite apps (artifacts/agent-observability, artifacts/mockup-sandbox)
+      # require PORT and BASE_PATH at config-load time, even for `vite build`
+      # and vitest. Same values the root build:vercel script uses.
+      PORT: 5173
+      BASE_PATH: /
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
