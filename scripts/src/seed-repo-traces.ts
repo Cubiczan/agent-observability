@@ -367,3 +367,6 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
+
+// Treat this file as a module so its top-level declarations stay file-scoped.
+export {};
