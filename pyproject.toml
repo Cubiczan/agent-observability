@@ -2,14 +2,14 @@
 name = "repl-nix-workspace"
 version = "0.1.0"
 description = "Add your description here"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "altair>=6.2.2",
-    "marimo>=0.13",
+    "marimo>=0.23.15",
     "matplotlib>=3.8",
-    "numpy>=1.26",
-    "pandas>=3.0.3",
-    "torch>=2.2",
+    "numpy>=2.5.2",
+    "pandas>=3.0.4",
+    "torch>=2.13",
 ]
 
 [[tool.uv.index]]
