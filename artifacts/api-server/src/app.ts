@@ -1,4 +1,5 @@
 import express, { type Express } from "express";
+import helmet from "helmet";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
@@ -6,6 +7,13 @@ import { logger } from "./lib/logger";
 
 const app: Express = express();
 
+app.use(
+  helmet({
+    // Default CORP is same-origin and would block cross-origin reads
+    // even when cors() sets Access-Control-Allow-Origin.
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  }),
+);
 app.use(
   pinoHttp({
     logger,
