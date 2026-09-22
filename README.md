@@ -33,6 +33,14 @@ alongside the cost data without being copied into the local database.
 - **Read-only** — AgentOps pulls *from* Datadog and never instruments or ships
   telemetry back to it.
 
+### Pipeline run hooks
+
+For data-pipeline instrumentation, use the destination-neutral
+`@workspace/run-telemetry` package. It emits one event per stage with
+`run_id`, `dataset`, `stage`, `input_hash`, `row_count`, `quality_status`,
+`duration`, `findings_count`, and `lineage_links` through a caller-provided
+sink. See [`lib/run-telemetry/README.md`](lib/run-telemetry/README.md).
+
 ### Configuration
 
 | Variable | Kind | Purpose |
