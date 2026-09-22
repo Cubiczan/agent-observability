@@ -61,8 +61,6 @@ async function buildTests() {
       "cors",
       "helmet",
       "pino-http",
-      "pg",
-      "drizzle-orm",
       "cookie-parser",
     ],
     sourcemap: "linked",
