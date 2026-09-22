@@ -14,6 +14,11 @@
     "test": "pnpm -r --if-present run test"
   },
   "private": true,
+  "pnpm": {
+    "overrides": {
+      "raw-body": "3.0.2"
+    }
+  },
   "engines": {
     "node": "24.x"
   },
